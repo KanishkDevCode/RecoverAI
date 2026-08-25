@@ -1,0 +1,75 @@
+{
+  "dataset_size": 1000,
+  "strategies": {
+    "no_recovery": {
+      "name": "No Recovery",
+      "transactions_evaluated": 1000,
+      "transactions_failed": 1000,
+      "gross_revenue_at_risk": 2554545.6000000024,
+      "recovered_revenue": 0.0,
+      "unrecovered_revenue": 2554545.6000000024,
+      "recovery_attempts": 0,
+      "successful_recoveries": 0,
+      "failed_recoveries": 0,
+      "escalations": 0,
+      "policy_blocks": 0,
+      "unnecessary_intervention_cost": 0.0,
+      "recovery_action_cost": 0.0,
+      "safety_violations": {
+        "unauthorized_executions": 0,
+        "duplicate_executions": 0,
+        "policy_bypasses": 0,
+        "invalid_state_transitions": 0
+      },
+      "recovery_rate": 0.0,
+      "net_revenue": 0.0
+    },
+    "safe_naive": {
+      "name": "Safe Naive Retry",
+      "transactions_evaluated": 1000,
+      "transactions_failed": 1000,
+      "gross_revenue_at_risk": 2554545.6000000024,
+      "recovered_revenue": 53413.640000000014,
+      "unrecovered_revenue": 2501131.960000002,
+      "recovery_attempts": 261,
+      "successful_recoveries": 151,
+      "failed_recoveries": 110,
+      "escalations": 253,
+      "policy_blocks": 486,
+      "unnecessary_intervention_cost": 550.0,
+      "recovery_action_cost": 522.0,
+      "safety_violations": {
+        "unauthorized_executions": 0,
+        "duplicate_executions": 0,
+        "policy_bypasses": 0,
+        "invalid_state_transitions": 0
+      },
+      "recovery_rate": 0.020909252901964232,
+      "net_revenue": 52341.640000000014
+    },
+    "recoverai": {
+      "name": "RecoverAI",
+      "transactions_evaluated": 1000,
+      "transactions_failed": 1000,
+      "gross_revenue_at_risk": 2554545.6000000024,
+      "recovered_revenue": 160635.64000000007,
+      "unrecovered_revenue": 2393909.9600000014,
+      "recovery_attempts": 316,
+      "successful_recoveries": 183,
+      "failed_recoveries": 133,
+      "escalations": 253,
+      "policy_blocks": 431,
+      "unnecessary_intervention_cost": 665.0,
+      "recovery_action_cost": 632.0,
+      "safety_violations": {
+        "unauthorized_executions": 0,
+        "duplicate_executions": 0,
+        "policy_bypasses": 0,
+        "invalid_state_transitions": 0
+      },
+      "recovery_rate": 0.06288227542307326,
+      "net_revenue": 159338.64000000007
+    }
+  },
+  "paired_incremental_value": 106997.0
+}

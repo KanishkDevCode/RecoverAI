@@ -1,0 +1,48 @@
+{
+  "features": [
+    "amount",
+    "customer_age_days",
+    "prior_success_count",
+    "prior_failure_count",
+    "previous_recovery_count",
+    "average_transaction_value",
+    "retry_count",
+    "days_since_last_payment",
+    "order_value",
+    "currency",
+    "payment_method",
+    "merchant_segment",
+    "failure_code",
+    "subscription_flag",
+    "checkout_completed"
+  ],
+  "numeric_features": [
+    "amount",
+    "customer_age_days",
+    "prior_success_count",
+    "prior_failure_count",
+    "previous_recovery_count",
+    "average_transaction_value",
+    "retry_count",
+    "days_since_last_payment",
+    "order_value"
+  ],
+  "categorical_features": [
+    "currency",
+    "payment_method",
+    "merchant_segment",
+    "failure_code"
+  ],
+  "boolean_features": [
+    "subscription_flag",
+    "checkout_completed"
+  ],
+  "threshold": 0.1,
+  "version": "v2",
+  "metrics": {
+    "val_precision": 0.4899598393574297,
+    "val_recall": 0.9959183673469387,
+    "val_f1": 0.6567967698519516,
+    "val_roc_auc": 0.7862665066026411
+  }
+}

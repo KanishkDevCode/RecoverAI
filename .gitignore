@@ -1,0 +1,43 @@
+.env
+.env.*
+!.env.example
+
+__pycache__/
+*.py[cod]
+
+.venv/
+venv/
+env/
+
+*.db
+*.sqlite
+*.sqlite3
+
+*.log
+
+node_modules/
+dist/
+build/
+
+.vscode/
+.idea/
+
+.DS_Store
+Thumbs.db
+
+coverage/
+.pytest_cache/
+.mypy_cache/
+
+# IDE artifacts
+.vs/
+*.swp
+*.swo
+
+# MacOS
+.AppleDouble
+.LSOverride
+
+# Temp files
+*~
+*.tmp
