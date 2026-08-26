@@ -27,6 +27,10 @@ export function getPaymentDetails(id) {
   return request(`/payments/${id}`);
 }
 
+export function initiateRefund(id) {
+  return request(`/payments/${id}/refund`, { method: 'POST' });
+}
+
 export function getPayments(limit = 50) {
   return request(`/transactions?limit=${limit}`);
 }
@@ -37,6 +41,10 @@ export function getAuditTrail(transactionId) {
 
 export function getDashboardMetrics() {
   return request('/dashboard/metrics');
+}
+
+export function getCustomers() {
+  return request('/customers');
 }
 
 export function getHealthCheck() {

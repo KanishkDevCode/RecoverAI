@@ -76,13 +76,6 @@ class RazorpayMockService:
                 ext_ref = f"pay_mock_{int(time.time())}"
                 result_msg = "RETRY_PAYMENT successful."
                 status = "SUCCEEDED"
-            elif action == "WAIT_AND_RETRY":
-                ext_ref = f"pay_mock_wait_{int(time.time())}"
-                result_msg = "WAIT_AND_RETRY successful."
-                status = "SUCCEEDED"
-            elif action == "SEND_RECOVERY_MESSAGE":
-                result_msg = f"Recovery message queued for {transaction_id}"
-                status = "SUCCEEDED"
             else:
                 result_msg = f"Unknown action type: {action}"
                 status = "FAILED"
@@ -139,6 +132,70 @@ class RazorpayMockService:
         except Exception as e:
             transition_recovery_attempt(db, attempt_id, "UNKNOWN", reason=f"Error during verification: {e}")
             return "UNKNOWN"
+
+    def process_refund(self, db: Session, transaction_id: str, idempotency_key: str) -> Dict[str, Any]:
+        """
+        Mock method to process a refund, simulating async processing over time.
+        """
+        from app.models.db_models import Transaction
+        
+        logger.info(f"Preparing to refund {transaction_id} using key {idempotency_key}")
+        
+        # 1. Persistent Idempotency Check
+        try:
+            new_record = IdempotencyRecord(key=idempotency_key, status="PENDING")
+            db.add(new_record)
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            existing_record = db.query(IdempotencyRecord).filter(IdempotencyRecord.key == idempotency_key).first()
+            if not existing_record:
+                return {"status": "FAILED", "idempotent_replay": True, "result_message": "Duplicate key error but record missing"}
+                
+            logger.warning(f"Idempotency hit! Refund with key {idempotency_key} already exists with status {existing_record.status}.")
+            return {
+                "status": existing_record.status,
+                "idempotent_replay": True,
+                "external_reference": existing_record.external_reference,
+                "result_message": existing_record.result_message
+            }
+            
+        record_to_update = db.query(IdempotencyRecord).filter(IdempotencyRecord.key == idempotency_key).first()
+        status = "FAILED"
+        ext_ref = None
+        result_msg = None
+        
+        try:
+            # Simulate network latency
+            time.sleep(0.1)
+            
+            # In a real async refund, the gateway accepts the request, returns REFUND_PROCESSING, 
+            # and later fires a webhook. For our mock, we simulate returning REFUND_PROCESSING initially,
+            # but since this is a synchronous mock simulator without a separate background worker for webhooks,
+            # we'll still use the mock delay, but we'll fulfill it.
+            
+            ext_ref = f"refund_mock_{int(time.time())}"
+            result_msg = "Refund successfully initiated and processed."
+            status = "REFUND_PROCESSING"
+            
+        except Exception as e:
+            logger.error(f"External API explicitly failed during refund: {e}")
+            status = "FAILED"
+            result_msg = f"api_error: {str(e)}"
+            
+        # 3. Update the record
+        if record_to_update:
+            record_to_update.status = status
+            record_to_update.external_reference = ext_ref
+            record_to_update.result_message = result_msg
+            db.commit()
+        
+        return {
+            "status": status,
+            "idempotent_replay": False,
+            "external_reference": ext_ref,
+            "result_message": result_msg
+        }
 
 # Singleton
 razorpay_service = RazorpayMockService()

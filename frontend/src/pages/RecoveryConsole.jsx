@@ -54,26 +54,40 @@ export default function RecoveryConsole() {
 
       {/* Metrics Cards */}
       {metrics && (
-        <div className="metrics-grid">
+        <div className="metrics-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
           <div className="metric-card">
-            <div className="metric-icon"><TrendingUp size={20} /></div>
+            <div className="metric-icon"><Activity size={20} /></div>
             <div className="metric-body">
-              <span className="metric-label">Revenue at Risk</span>
-              <span className="metric-value">₹{metrics.revenue_at_risk?.toLocaleString() || '0'}</span>
-            </div>
-          </div>
-          <div className="metric-card success">
-            <div className="metric-icon"><ShieldCheck size={20} /></div>
-            <div className="metric-body">
-              <span className="metric-label">Recovered</span>
-              <span className="metric-value">₹{metrics.revenue_recovered?.toLocaleString() || '0'}</span>
+              <span className="metric-label">ML Predictions</span>
+              <span className="metric-value">{metrics.ml_predictions || 0}</span>
             </div>
           </div>
           <div className="metric-card">
             <div className="metric-icon"><Activity size={20} /></div>
             <div className="metric-body">
-              <span className="metric-label">Recovery Rate</span>
-              <span className="metric-value">{metrics.recovery_rate?.toFixed(1) || '0'}%</span>
+              <span className="metric-label">AI Recommendations</span>
+              <span className="metric-value">{metrics.ai_recommendations || 0}</span>
+            </div>
+          </div>
+          <div className="metric-card">
+            <div className="metric-icon"><Activity size={20} /></div>
+            <div className="metric-body">
+              <span className="metric-label">Gateway Executions</span>
+              <span className="metric-value">{metrics.gateway_executions || 0}</span>
+            </div>
+          </div>
+          <div className="metric-card success">
+            <div className="metric-icon"><ShieldCheck size={20} /></div>
+            <div className="metric-body">
+              <span className="metric-label">Policy Allowed</span>
+              <span className="metric-value">{metrics.policy_allowed || 0}</span>
+            </div>
+          </div>
+          <div className="metric-card">
+            <div className="metric-icon"><AlertTriangle size={20} /></div>
+            <div className="metric-body">
+              <span className="metric-label">Policy Denied</span>
+              <span className="metric-value">{metrics.policy_denied || 0}</span>
             </div>
           </div>
           <div className="metric-card">

@@ -10,6 +10,8 @@ import Payments from './pages/Payments';
 import PaymentDetails from './pages/PaymentDetails';
 import RecoveryConsole from './pages/RecoveryConsole';
 import Settings from './pages/Settings';
+import Overview from './pages/Overview';
+import Customers from './pages/Customers';
 import './index.css';
 
 export default function App() {
@@ -18,7 +20,7 @@ export default function App() {
       <PaymentProvider>
         <Routes>
           <Route element={<AppLayout />}>
-            <Route path="/" element={<Navigate to="/checkout" replace />} />
+            <Route path="/" element={<Overview />} />
             <Route path="/checkout" element={<Checkout />} />
             <Route path="/payment-processing" element={<PaymentProcessing />} />
             <Route path="/payment-success" element={<PaymentSuccess />} />
@@ -26,8 +28,9 @@ export default function App() {
             <Route path="/payments" element={<Payments />} />
             <Route path="/payments/:transactionId" element={<PaymentDetails />} />
             <Route path="/recovery" element={<RecoveryConsole />} />
+            <Route path="/customers" element={<Customers />} />
             <Route path="/settings" element={<Settings />} />
-            <Route path="*" element={<Navigate to="/checkout" replace />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
       </PaymentProvider>

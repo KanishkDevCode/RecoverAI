@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db, SessionLocal
 from app.services.orchestrator import RecoveryOrchestrator
 from app.models.db_models import AuditLog, Transaction, RecoveryAttempt
+from app.services.razorpay_mock import razorpay_service
 from sqlalchemy import func
 
 logger = logging.getLogger(__name__)
@@ -154,6 +155,8 @@ def get_payment_details(
         "original_status": txn.status,
         "failure_code": txn.failure_code,
         "failure_reason": txn.failure_reason,
+        "refund_status": txn.refund_status,
+        "refund_amount": txn.refund_amount,
         "created_at": txn.created_at,
         "recovery": None if not attempt else {
             "agent_diagnosis": attempt.agent_diagnosis,
@@ -209,20 +212,73 @@ def get_dashboard_metrics(db: Session = Depends(get_db), api_key: str = Depends(
     
     total_recovered = sum([t.amount for t in recovered_txns])
     
+    # Total successful revenue (all original successes + recovered)
+    success_txns = db.query(Transaction).filter(Transaction.status == "success").all()
+    total_revenue = sum([t.amount for t in success_txns]) + total_recovered
+    
+    # Total refunds
+    refunded_txns = db.query(Transaction).filter(Transaction.refund_status == "REFUNDED").all()
+    total_refunds = sum([t.refund_amount for t in refunded_txns if t.refund_amount])
+    
     # Calculate statuses
     success_count = db.query(RecoveryAttempt).filter(RecoveryAttempt.outcome_status == "SUCCESS").count()
     escalated_count = db.query(RecoveryAttempt).filter(RecoveryAttempt.outcome_status == "CREATE_ESCALATION").count()
     stopped_count = db.query(RecoveryAttempt).filter(RecoveryAttempt.outcome_status == "STOP_AUTOMATION").count()
     
+    # ML and Agent statistics
+    # This represents transactions that failed initially, where RecoverAI made decisions
+    total_recoveries = db.query(RecoveryAttempt).count()
+    ml_predictions_count = total_recoveries # We predict on every failure
+    ai_recommendations_count = total_recoveries
+    policy_allowed = db.query(RecoveryAttempt).filter(RecoveryAttempt.policy_decision == "ALLOWED").count()
+    policy_denied = db.query(RecoveryAttempt).filter(RecoveryAttempt.policy_decision == "DENIED").count()
+    gateway_executions = db.query(AuditLog).filter(AuditLog.event_type == "GATEWAY_RESULT").count()
+    unknown_transactions = db.query(RecoveryAttempt).filter(RecoveryAttempt.outcome_status == "UNKNOWN").count()
+    
     return {
-        "total_transactions": total_txns,
+        "total_payments_count": total_txns,
+        "total_revenue": total_revenue,
         "revenue_at_risk": total_risk,
         "revenue_recovered": total_recovered,
+        "total_refunds": total_refunds,
         "recovery_rate": (total_recovered / total_risk * 100) if total_risk > 0 else 0,
         "successful_actions": success_count,
         "escalations": escalated_count,
-        "stopped_automations": stopped_count
+        "stopped_automations": stopped_count,
+        "ml_predictions": ml_predictions_count,
+        "ai_recommendations": ai_recommendations_count,
+        "policy_allowed": policy_allowed,
+        "policy_denied": policy_denied,
+        "gateway_executions": gateway_executions,
+        "unknown_transactions": unknown_transactions
     }
+
+@router.get("/customers")
+def get_customers(db: Session = Depends(get_db), api_key: str = Depends(get_api_key)):
+    """Returns derived customers from transactions."""
+    
+    # We want Customer, Payments, Revenue, Recovered
+    txns = db.query(Transaction).all()
+    customers = {}
+    
+    for txn in txns:
+        cid = txn.customer_id
+        if cid not in customers:
+            customers[cid] = {
+                "customer_id": cid,
+                "payments": 0,
+                "revenue": 0.0,
+                "recovered": 0.0
+            }
+        
+        customers[cid]["payments"] += 1
+        if txn.status == "success":
+            customers[cid]["revenue"] += txn.amount
+        elif txn.status == "recovered":
+            customers[cid]["revenue"] += txn.amount
+            customers[cid]["recovered"] += txn.amount
+            
+    return list(customers.values())
 
 @router.get("/transactions")
 def get_recent_transactions(limit: int = 50, db: Session = Depends(get_db), api_key: str = Depends(get_api_key)):
@@ -245,7 +301,77 @@ def get_recent_transactions(limit: int = 50, db: Session = Depends(get_db), api_
             "agent_diagnosis": attempt.agent_diagnosis if attempt else None,
             "policy_action": attempt.policy_decision if attempt else None,
             "recovery_status": attempt.outcome_status if attempt else None,
+            "refund_status": txn.refund_status,
             "timestamp": txn.created_at
         })
             
     return results
+
+def simulate_refund_webhook_bg(transaction_id: str):
+    import time
+    time.sleep(2.0)
+    db = SessionLocal()
+    try:
+        txn = db.query(Transaction).filter(Transaction.id == transaction_id).first()
+        if txn and txn.refund_status == "REFUND_PROCESSING":
+            txn.refund_status = "REFUNDED"
+            db.commit()
+    finally:
+        db.close()
+
+@router.post("/payments/{transaction_id}/refund")
+def initiate_refund(
+    transaction_id: str,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    api_key: str = Depends(get_api_key)
+):
+    """
+    Initiate a refund for a successful or recovered payment.
+    Enforces authorization and idempotency.
+    """
+    txn = db.query(Transaction).filter(Transaction.id == transaction_id).first()
+    if not txn:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+        
+    # 1. Authorization check
+    if txn.status not in ["success", "recovered"]:
+        raise HTTPException(status_code=400, detail="Only successfully captured payments can be refunded")
+        
+    # 2. Check if already refunded
+    if txn.refund_status in ["REFUND_REQUESTED", "REFUND_PROCESSING", "REFUNDED"]:
+        raise HTTPException(status_code=400, detail=f"Refund already in progress or completed (status: {txn.refund_status})")
+        
+    # 3. Mark as requested
+    txn.refund_status = "REFUND_REQUESTED"
+    db.commit()
+    
+    # 4. Idempotency Check & Mock Gateway Execution
+    idempotency_key = f"refund_{transaction_id}"
+    
+    try:
+        result = razorpay_service.process_refund(db, transaction_id, idempotency_key)
+        
+        if result["status"] == "REFUND_PROCESSING":
+            txn.refund_status = "REFUND_PROCESSING"
+            txn.refund_amount = txn.amount
+            db.commit()
+            
+            # Simulate webhook arriving later to complete the refund
+            background_tasks.add_task(simulate_refund_webhook_bg, transaction_id)
+            
+            return {
+                "transaction_id": transaction_id, 
+                "status": "REFUND_PROCESSING", 
+                "idempotent_replay": result["idempotent_replay"]
+            }
+        else:
+            txn.refund_status = "FAILED"
+            db.commit()
+            raise HTTPException(status_code=500, detail=result.get("result_message", "Unknown gateway error"))
+            
+    except Exception as e:
+        logger.error(f"Error during refund: {e}")
+        txn.refund_status = "FAILED"
+        db.commit()
+        raise HTTPException(status_code=500, detail=str(e))

@@ -83,7 +83,11 @@ export default function PaymentFailed() {
         </div>
 
         <div className="result-actions">
-          <button className="btn-primary" onClick={handleRetry}>Try Again</button>
+          {wasEscalated || isUnknown ? (
+            <button className="btn-primary" onClick={() => navigate(`/payments/${txId}`)}>Check Status</button>
+          ) : (
+            <button className="btn-primary" onClick={handleRetry}>Try Again</button>
+          )}
           <button className="btn-outline" onClick={() => navigate('/payments')}>View Payments</button>
         </div>
       </div>

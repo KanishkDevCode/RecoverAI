@@ -12,6 +12,8 @@ class Transaction(Base):
     status = Column(String, default="failed") # e.g. failed, recovered, escalated
     failure_code = Column(String)
     failure_reason = Column(String)
+    refund_status = Column(String, nullable=True) # REFUND_REQUESTED, REFUND_PROCESSING, REFUNDED
+    refund_amount = Column(Float, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

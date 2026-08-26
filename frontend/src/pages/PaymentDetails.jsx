@@ -61,12 +61,49 @@ export default function PaymentDetails() {
 
       <div className="detail-card">
         {/* Header */}
-        <div className="detail-header">
+        <div className="detail-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <h1 className="detail-txn-id">{transactionId}</h1>
             <span className={`status-badge ${finalStatus === 'SUCCEEDED' ? 'badge-success' : finalStatus === 'FAILED' ? 'badge-danger' : 'badge-warning'}`}>
               {finalStatus}
             </span>
+          </div>
+          
+          {/* Action Matrix CTA Block */}
+          <div className="detail-actions">
+            {finalStatus === 'FAILED' && (
+              <button className="btn-primary" onClick={() => navigate('/checkout')}>Try Again</button>
+            )}
+            {finalStatus === 'ESCALATED' && (
+              <button className="btn-outline">Check Status</button>
+            )}
+            {finalStatus === 'SUCCEEDED' && !details.refund_status && (
+              <button 
+                className="btn-outline" 
+                onClick={async () => {
+                  try {
+                    const { initiateRefund } = await import('../services/api');
+                    await initiateRefund(transactionId);
+                    loadData(); // refresh to show refund processing
+                  } catch (err) {
+                    alert('Refund failed: ' + err.message);
+                  }
+                }}
+              >
+                Initiate Refund
+              </button>
+            )}
+            {details.refund_status === 'REFUND_REQUESTED' && (
+              <button className="btn-outline" disabled>Refund Requested...</button>
+            )}
+            {details.refund_status === 'REFUND_PROCESSING' && (
+              <button className="btn-outline" onClick={loadData}>View Refund Status</button>
+            )}
+            {details.refund_status === 'REFUNDED' && (
+              <button className="btn-success" disabled>
+                <CheckCircle2 size={16} style={{ display: 'inline', marginRight: '4px' }} /> Refunded
+              </button>
+            )}
           </div>
         </div>
 
