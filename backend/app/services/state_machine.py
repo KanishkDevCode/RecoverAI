@@ -4,9 +4,9 @@ from app.models.db_models import RecoveryAttempt, AuditLog
 
 logger = logging.getLogger(__name__)
 
-# The 9 canonical financial states
+# The 11 canonical financial states
 VALID_TRANSITIONS = {
-    "PENDING": ["AUTHORIZED", "STOPPED", "ESCALATED"],
+    "PENDING": ["AUTHORIZED", "STOPPED", "ESCALATED", "WAITING", "AWAITING_CUSTOMER"],
     "AUTHORIZED": ["EXECUTING"],
     "EXECUTING": ["SUCCEEDED", "FAILED", "UNKNOWN"],
     "UNKNOWN": ["VERIFYING"],
@@ -14,7 +14,9 @@ VALID_TRANSITIONS = {
     "SUCCEEDED": [],
     "FAILED": [],
     "STOPPED": [],
-    "ESCALATED": []
+    "ESCALATED": [],
+    "WAITING": [],
+    "AWAITING_CUSTOMER": []
 }
 
 def transition_recovery_attempt(

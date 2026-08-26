@@ -44,3 +44,19 @@ class TransactionIncoming(BaseModel):
                     data["id"] = data["transaction_id"]
                 data.pop("transaction_id")
         return data
+
+class DeveloperOverrides(BaseModel):
+    failure_code: Optional[constr(max_length=50)] = None
+    failure_reason: Optional[constr(max_length=1000)] = None
+    retry_count: Optional[int] = Field(default=0, ge=0)
+
+class PaymentCreateRequest(BaseModel):
+    model_config = ConfigDict(extra='ignore')
+    
+    id: constr(min_length=1, max_length=100) = Field(..., description="Transaction ID")
+    customer_id: constr(min_length=1, max_length=100)
+    amount: confloat(gt=0) = Field(..., description="Transaction amount")
+    currency: CurrencyEnum = Field(default=CurrencyEnum.INR)
+    payment_method: PaymentMethodEnum
+    mode: str = Field("live", description="live or test mode")
+    developer_overrides: Optional[DeveloperOverrides] = None

@@ -6,6 +6,8 @@ from app.services.ml_service import ml_service
 from app.agents.diagnosis_agent import diagnosis_agent
 from app.policy.rules import evaluate_policy
 from app.services.razorpay_mock import razorpay_service
+from app.services.event_bus import event_bus
+from app.schemas.events import RecoveryEvent
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +30,17 @@ class RecoveryOrchestrator:
         # 1. Log ingestion
         self.audit_logger.log_transaction_ingestion(transaction)
         
+        event_bus.publish(RecoveryEvent(
+            transaction_id=txn_id,
+            event_type="PAYMENT_FAILED",
+            data={
+                "amount": transaction.amount,
+                "currency": transaction.currency.value if hasattr(transaction.currency, "value") else transaction.currency,
+                "failure_code": transaction.failure_code,
+                "failure_reason": transaction.failure_reason
+            }
+        ))
+        
         # 2. Initialize Attempt in PENDING state
         attempt_id = f"att_{uuid.uuid4().hex[:12]}"
         attempt = RecoveryAttempt(
@@ -41,8 +54,27 @@ class RecoveryOrchestrator:
         # 3. ML Probability
         ml_prob = ml_service.predict_recovery_probability(transaction)
         
+        event_bus.publish(RecoveryEvent(
+            transaction_id=txn_id,
+            event_type="ML_PREDICTION",
+            data={
+                "probability": ml_prob,
+                "features_used": len(ml_service.features_list)
+            }
+        ))
+        
         # 4. Agent Diagnosis
         diagnosis_response = diagnosis_agent.diagnose_transaction(transaction, ml_prob)
+        
+        event_bus.publish(RecoveryEvent(
+            transaction_id=txn_id,
+            event_type="AI_RECOMMENDATION",
+            data={
+                "diagnosis": diagnosis_response.diagnosis,
+                "recommended_action": diagnosis_response.recommended_action,
+                "confidence": diagnosis_response.confidence
+            }
+        ))
         
         # 5. Policy Gate
         retry_count = transaction.retry_count
@@ -65,29 +97,82 @@ class RecoveryOrchestrator:
         attempt.executed_action = final_action if is_allowed else "NONE"
         self.db.commit()
         
+        event_bus.publish(RecoveryEvent(
+            transaction_id=txn_id,
+            event_type="POLICY_DECISION",
+            data={
+                "is_allowed": is_allowed,
+                "final_action": final_action,
+                "reason": policy_reason,
+                "hard_limit_enforced": not is_allowed
+            }
+        ))
+        
         # 6. Execution via State Machine
         external_ref = None
         
-        if is_allowed and final_action in ["RETRY_PAYMENT", "WAIT_AND_RETRY", "SEND_RECOVERY_MESSAGE"]:
-            transition_recovery_attempt(self.db, attempt_id, "AUTHORIZED", reason="Policy approved")
+        if is_allowed:
+            if final_action == "RETRY_PAYMENT":
+                transition_recovery_attempt(self.db, attempt_id, "AUTHORIZED", reason="Policy approved")
+                
+                event_bus.publish(RecoveryEvent(
+                    transaction_id=txn_id,
+                    event_type="STATE_CHANGE",
+                    data={"previous_state": "PENDING", "new_state": "AUTHORIZED", "reason": "Policy approved"}
+                ))
+                
+                idempotency_key = f"idem_{txn_id}_{final_action}_{retry_count}"
+                result_dict = razorpay_service.execute_recovery_action(self.db, txn_id, final_action, idempotency_key, attempt_id)
+                
+                outcome_status = result_dict.get("status", "FAILED")
+                external_ref = result_dict.get("external_reference") or result_dict.get("result_message")
+                
+                event_bus.publish(RecoveryEvent(
+                    transaction_id=txn_id,
+                    event_type="GATEWAY_RESULT",
+                    data={"action_executed": final_action, "status": outcome_status, "message": external_ref}
+                ))
+                
+                if outcome_status == "SUCCEEDED":
+                    txn = self.db.query(Transaction).filter(Transaction.id == txn_id).first()
+                    if txn:
+                        txn.status = "recovered"
+                        self.db.commit()
             
-            idempotency_key = f"idem_{txn_id}_{final_action}_{retry_count}"
-            result_dict = razorpay_service.execute_recovery_action(self.db, txn_id, final_action, idempotency_key, attempt_id)
-            
-            outcome_status = result_dict.get("status", "FAILED")
-            external_ref = result_dict.get("external_reference") or result_dict.get("result_message")
-            
-            if outcome_status == "SUCCEEDED":
-                txn = self.db.query(Transaction).filter(Transaction.id == txn_id).first()
-                if txn:
-                    txn.status = "recovered"
-                    self.db.commit()
+            elif final_action == "WAIT_AND_RETRY":
+                outcome_status = "WAITING"
+                transition_recovery_attempt(self.db, attempt_id, "WAITING", reason="Recovery scheduled")
+                
+                event_bus.publish(RecoveryEvent(
+                    transaction_id=txn_id,
+                    event_type="STATE_CHANGE",
+                    data={"previous_state": "PENDING", "new_state": "WAITING", "reason": "Recovery scheduled"}
+                ))
+
+            elif final_action == "SEND_RECOVERY_MESSAGE":
+                outcome_status = "AWAITING_CUSTOMER"
+                transition_recovery_attempt(self.db, attempt_id, "AWAITING_CUSTOMER", reason="Recovery message sent")
+                
+                event_bus.publish(RecoveryEvent(
+                    transaction_id=txn_id,
+                    event_type="STATE_CHANGE",
+                    data={"previous_state": "PENDING", "new_state": "AWAITING_CUSTOMER", "reason": "Recovery message sent"}
+                ))
+            else:
+                # Should not reach here if is_allowed is true, but handle safely
+                outcome_status = "STOPPED"
+                transition_recovery_attempt(self.db, attempt_id, "STOPPED", reason=f"Unknown action {final_action}")
         else:
-            new_state = "ESCALATED" if final_action == "CREATE_ESCALATION" else "STOPPED"
-            transition_recovery_attempt(self.db, attempt_id, new_state, reason=f"Policy denied: {policy_reason}")
-            outcome_status = new_state
+            outcome_status = "ESCALATED" if final_action == "CREATE_ESCALATION" else "STOPPED"
+            transition_recovery_attempt(self.db, attempt_id, outcome_status, reason="Policy rejected")
             
-        return {
+            event_bus.publish(RecoveryEvent(
+                transaction_id=txn_id,
+                event_type="STATE_CHANGE",
+                data={"previous_state": "PENDING", "new_state": outcome_status, "reason": "Policy rejected"}
+            ))
+            
+        result_dict_return = {
             "transaction_id": txn_id,
             "attempt_id": attempt_id,
             "final_action": final_action,
@@ -95,3 +180,14 @@ class RecoveryOrchestrator:
             "policy_reason": policy_reason,
             "external_reference": external_ref
         }
+        
+        event_bus.publish(RecoveryEvent(
+            transaction_id=txn_id,
+            event_type="RECOVERY_COMPLETE",
+            data={
+                "outcome": outcome_status,
+                "net_value_recovered": transaction.amount if outcome_status == "SUCCEEDED" else 0.0
+            }
+        ))
+        
+        return result_dict_return

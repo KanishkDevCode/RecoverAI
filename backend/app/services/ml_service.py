@@ -27,7 +27,7 @@ class MLService:
                     self.features_list = config.get("features", [])
                 logger.info(f"Recovery ML model loaded. Threshold: {self.threshold}")
             except Exception as e:
-                logger.error(f"Failed to load ML model or config: {e}")
+                logger.error(f"Failed to load ML model or config: {e}"); print("LOAD ERROR:", repr(e))
         else:
             logger.warning(f"ML model/config not found. Train the model first.")
 
