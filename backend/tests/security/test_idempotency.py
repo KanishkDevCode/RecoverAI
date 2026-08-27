@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
 from app.models.db_models import IdempotencyRecord
-from app.services.razorpay_mock import RazorpayMockService
+from app.services.razorpay_mock import MockGateway
 
 # Use a file-based SQLite DB to allow cross-thread access during concurrent tests
 TEST_DB_URL = "sqlite:///./test_idempotency.db"
@@ -25,7 +25,7 @@ def setup_database():
             pass
 
 def execute_with_new_session(transaction_id, action, key, attempt_id=None):
-    service = RazorpayMockService()
+    service = MockGateway()
     session = TestingSessionLocal()
     import uuid
     from app.models.db_models import RecoveryAttempt
@@ -57,7 +57,7 @@ def test_sequential_duplicate_request():
 
 def test_different_idempotency_keys():
     res1 = execute_with_new_session("txn_2", "RETRY_PAYMENT", "key_1")
-    res2 = execute_with_new_session("txn_2", "WAIT_AND_RETRY", "key_2")
+    res2 = execute_with_new_session("txn_3", "RETRY_PAYMENT", "key_2")
     
     assert res1["idempotent_replay"] is False
     assert res2["idempotent_replay"] is False

@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.database import get_db, Base, engine
 from sqlalchemy.orm import sessionmaker
+import uuid
 
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -17,8 +18,9 @@ app.dependency_overrides[get_db] = override_get_db
 client = TestClient(app)
 
 def test_developer_overrides_propagate_safe_recovery():
+    txn_id = f"txn_test_safe_recovery_{uuid.uuid4().hex[:6]}"
     response = client.post("/api/v1/payments", json={
-        "id": "txn_test_safe_recovery",
+        "id": txn_id,
         "customer_id": "cust_test",
         "amount": 450,
         "currency": "INR",
@@ -37,14 +39,15 @@ def test_developer_overrides_propagate_safe_recovery():
     # Verify in DB
     db = TestingSessionLocal()
     from app.models.db_models import Transaction
-    txn = db.query(Transaction).filter(Transaction.id == "txn_test_safe_recovery").first()
+    txn = db.query(Transaction).filter(Transaction.id == txn_id).first()
     assert txn is not None
     assert txn.failure_code == "bank_timeout"
-    assert txn.amount == 450
+    assert txn.amount == 45000
 
 def test_developer_overrides_propagate_fraud():
+    txn_id = f"txn_test_fraud_{uuid.uuid4().hex[:6]}"
     response = client.post("/api/v1/payments", json={
-        "id": "txn_test_fraud",
+        "id": txn_id,
         "customer_id": "cust_test",
         "amount": 200,
         "currency": "INR",
@@ -61,14 +64,15 @@ def test_developer_overrides_propagate_fraud():
     
     db = TestingSessionLocal()
     from app.models.db_models import Transaction
-    txn = db.query(Transaction).filter(Transaction.id == "txn_test_fraud").first()
+    txn = db.query(Transaction).filter(Transaction.id == txn_id).first()
     assert txn is not None
     assert txn.failure_code == "fraud_suspected"
-    assert txn.amount == 200
+    assert txn.amount == 20000
 
 def test_developer_overrides_propagate_high_value():
+    txn_id = f"txn_test_high_value_{uuid.uuid4().hex[:6]}"
     response = client.post("/api/v1/payments", json={
-        "id": "txn_test_high_value",
+        "id": txn_id,
         "customer_id": "cust_test",
         "amount": 6500,
         "currency": "INR",
@@ -85,13 +89,14 @@ def test_developer_overrides_propagate_high_value():
     
     db = TestingSessionLocal()
     from app.models.db_models import Transaction
-    txn = db.query(Transaction).filter(Transaction.id == "txn_test_high_value").first()
+    txn = db.query(Transaction).filter(Transaction.id == txn_id).first()
     assert txn is not None
     assert txn.failure_code == "bank_timeout"
 
 def test_developer_overrides_propagate_retry_limit():
+    txn_id = f"txn_test_retry_limit_{uuid.uuid4().hex[:6]}"
     response = client.post("/api/v1/payments", json={
-        "id": "txn_test_retry_limit",
+        "id": txn_id,
         "customer_id": "cust_test",
         "amount": 900,
         "currency": "INR",
@@ -108,6 +113,6 @@ def test_developer_overrides_propagate_retry_limit():
     
     db = TestingSessionLocal()
     from app.models.db_models import Transaction
-    txn = db.query(Transaction).filter(Transaction.id == "txn_test_retry_limit").first()
+    txn = db.query(Transaction).filter(Transaction.id == txn_id).first()
     assert txn is not None
     assert txn.failure_code == "bank_timeout"

@@ -17,15 +17,22 @@ def override_get_db():
 app.dependency_overrides[get_db] = override_get_db
 client = TestClient(app)
 
-def setup_db_transaction(status, id):
+@pytest.fixture(scope="function", autouse=True)
+def setup_db():
+    Base.metadata.create_all(bind=engine)
+    yield
+    Base.metadata.drop_all(bind=engine)
+
+def setup_db_transaction(status, id, recovery_status="NOT_STARTED"):
     db = TestingSessionLocal()
     from app.models.db_models import Transaction
     txn = Transaction(
         id=id,
         customer_id="cust_1",
-        amount=500.0,
+        amount=50000,
         currency="INR",
-        status=status
+        status=status,
+        recovery_status=recovery_status
     )
     db.add(txn)
     db.commit()
@@ -52,7 +59,7 @@ def test_refund_success_payment():
 
 def test_refund_recovered_payment():
     txn_id = f"txn_rec_{uuid.uuid4().hex[:6]}"
-    setup_db_transaction("recovered", txn_id)
+    setup_db_transaction("failed", txn_id, recovery_status="SUCCEEDED")
     response = client.post(f"/api/v1/payments/{txn_id}/refund", headers={"X-API-Key": "test_secret_key_123"})
     assert response.status_code == 200
     assert response.json()["status"] == "REFUND_PROCESSING"

@@ -5,8 +5,8 @@ from app.services.audit_logger import AuditLogger
 from app.services.ml_service import ml_service
 from app.agents.diagnosis_agent import diagnosis_agent
 from app.policy.rules import evaluate_policy
-from app.services.razorpay_mock import razorpay_service
 from app.services.event_bus import event_bus
+from app.services.execution_guard import get_execution_guard
 from app.schemas.events import RecoveryEvent
 
 logger = logging.getLogger(__name__)
@@ -122,7 +122,9 @@ class RecoveryOrchestrator:
                 ))
                 
                 idempotency_key = f"idem_{txn_id}_{final_action}_{retry_count}"
-                result_dict = razorpay_service.execute_recovery_action(self.db, txn_id, final_action, idempotency_key, attempt_id)
+                
+                guard = get_execution_guard(self.db)
+                result_dict = guard.execute(txn_id, attempt_id, final_action, idempotency_key, retry_count)
                 
                 outcome_status = result_dict.get("status", "FAILED")
                 external_ref = result_dict.get("external_reference") or result_dict.get("result_message")
@@ -136,7 +138,7 @@ class RecoveryOrchestrator:
                 if outcome_status == "SUCCEEDED":
                     txn = self.db.query(Transaction).filter(Transaction.id == txn_id).first()
                     if txn:
-                        txn.status = "recovered"
+                        txn.recovery_status = "SUCCEEDED"
                         self.db.commit()
             
             elif final_action == "WAIT_AND_RETRY":

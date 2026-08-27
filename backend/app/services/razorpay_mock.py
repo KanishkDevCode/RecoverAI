@@ -1,13 +1,16 @@
 import logging
 import time
+import hmac
+import hashlib
 from typing import Dict, Any, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from app.models.db_models import IdempotencyRecord
+from app.gateways.base import GatewayInterface
 
 logger = logging.getLogger(__name__)
 
-class RazorpayMockService:
+class MockGateway(GatewayInterface):
     """
     A mock wrapper simulating the external Razorpay SDK.
     In a real environment, this connects to Razorpay Test Mode APIs.
@@ -25,6 +28,11 @@ class RazorpayMockService:
         
         logger.info(f"Preparing to execute {action} on {transaction_id} using key {idempotency_key}")
         
+        # 0. Gateway Defense in Depth: Explicit Action Allowlist
+        if action != "RETRY_PAYMENT":
+            logger.error(f"Gateway rejected unsupported financial action: {action}")
+            return {"status": "FAILED", "idempotent_replay": False, "result_message": f"Gateway rejected unsupported action: {action}"}
+            
         # 1. Persistent Idempotency Check using Database Constraint
         try:
             new_record = IdempotencyRecord(key=idempotency_key, attempt_id=attempt_id, status="PENDING")
@@ -73,7 +81,8 @@ class RazorpayMockService:
                 raise ValueError("Simulated explicit gateway rejection (Insufficient Funds / Hard Decline)")
             
             if action == "RETRY_PAYMENT":
-                ext_ref = f"pay_mock_{int(time.time())}"
+                import uuid
+                ext_ref = f"pay_mock_{int(time.time())}_{uuid.uuid4().hex[:4]}"
                 result_msg = "RETRY_PAYMENT successful."
                 status = "SUCCEEDED"
             else:
@@ -197,5 +206,40 @@ class RazorpayMockService:
             "result_message": result_msg
         }
 
-# Singleton
-razorpay_service = RazorpayMockService()
+    def verify_refund(self, db: Session, transaction_id: str) -> str:
+        """
+        Mock method to verify the ground-truth state of a refund with the gateway.
+        """
+        try:
+            time.sleep(0.1)
+            # Deterministic mock verification based on transaction_id content
+            if "verify_refund_success" in transaction_id:
+                return "REFUNDED"
+            elif "verify_refund_fail" in transaction_id:
+                return "REFUND_FAILED"
+            elif "verify_refund_unavailable" in transaction_id:
+                return "REFUND_UNKNOWN"
+            else:
+                # Default for mock: Assume it succeeded if we reach here without special flags
+                return "REFUNDED"
+        except Exception as e:
+            logger.error(f"Error during mock refund verification: {e}")
+            return "REFUND_UNKNOWN"
+
+    def verify_webhook_signature(self, payload: bytes, signature: str, secret: str) -> bool:
+        """
+        Mock method for verifying webhook HMAC-SHA256 signatures.
+        """
+        try:
+            expected_signature = hmac.new(
+                secret.encode('utf-8'),
+                payload,
+                hashlib.sha256
+            ).hexdigest()
+            return hmac.compare_digest(expected_signature, signature)
+        except Exception as e:
+            logger.error(f"Signature verification error: {e}")
+            return False
+
+# Legacy export for backwards compatibility until refactor is complete
+razorpay_service = MockGateway()

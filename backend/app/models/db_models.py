@@ -7,13 +7,14 @@ class Transaction(Base):
 
     id = Column(String, primary_key=True, index=True) # e.g. txn_...
     customer_id = Column(String, index=True)
-    amount = Column(Float, nullable=False)
+    amount = Column(Integer, nullable=False) # stored in minor units (e.g. paise)
     currency = Column(String, default="INR")
-    status = Column(String, default="failed") # e.g. failed, recovered, escalated
+    status = Column(String, default="failed") # original payment status (e.g. failed, success)
+    recovery_status = Column(String, default="NOT_STARTED") # e.g. NOT_STARTED, SUCCEEDED, FAILED
     failure_code = Column(String)
     failure_reason = Column(String)
     refund_status = Column(String, nullable=True) # REFUND_REQUESTED, REFUND_PROCESSING, REFUNDED
-    refund_amount = Column(Float, nullable=True)
+    refund_amount = Column(Integer, nullable=True) # stored in minor units (e.g. paise)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -30,6 +31,7 @@ class RecoveryAttempt(Base):
     policy_reason = Column(String)
     executed_action = Column(String) # What was actually executed
     outcome_status = Column(String) # SUCCESS, FAILURE, PENDING, NONE
+    version = Column(Integer, default=1, nullable=False) # For optimistic concurrency
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 class AuditLog(Base):
@@ -52,5 +54,21 @@ class IdempotencyRecord(Base):
     status = Column(String, default="PENDING")
     external_reference = Column(String, nullable=True)
     result_message = Column(String, nullable=True)
+    request_hash = Column(String, nullable=True)
+    response_body = Column(Text, nullable=True)
+    status_code = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+class WebhookEvent(Base):
+    __tablename__ = "webhook_events"
+    
+    event_id = Column(String, primary_key=True, index=True)
+    event_type = Column(String, index=True)
+    transaction_id = Column(String, ForeignKey("transactions.id"), index=True, nullable=True)
+    refund_id = Column(String, nullable=True)
+    payload_hash = Column(String, index=True)
+    payload = Column(Text)
+    received_at = Column(DateTime(timezone=True), server_default=func.now())
+    processed_at = Column(DateTime(timezone=True), nullable=True)
+    processing_status = Column(String, default="PENDING") # PENDING, PROCESSED, FAILED, DUPLICATE

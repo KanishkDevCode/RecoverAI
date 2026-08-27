@@ -14,12 +14,14 @@ class AuditLogger:
         # Upsert transaction
         existing_txn = self.db.query(Transaction).filter(Transaction.id == txn_id).first()
         if not existing_txn:
+            from app.services.money import to_minor_units
             db_txn = Transaction(
                 id=txn_id,
                 customer_id=transaction.customer_id,
-                amount=transaction.amount,
+                amount=to_minor_units(transaction.amount),
                 currency=transaction.currency.value if hasattr(transaction.currency, "value") else transaction.currency,
                 status=transaction.payment_status.value if hasattr(transaction.payment_status, "value") else transaction.payment_status,
+                recovery_status="NOT_STARTED",
                 failure_code=transaction.failure_code,
                 failure_reason=transaction.failure_reason
             )
@@ -84,7 +86,7 @@ class AuditLogger:
         if outcome_status == "SUCCESS":
             txn = self.db.query(Transaction).filter(Transaction.id == transaction_id).first()
             if txn:
-                txn.status = "recovered"
+                txn.recovery_status = "SUCCEEDED"
                 
         self.db.commit()
         return attempt_id

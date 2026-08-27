@@ -75,7 +75,7 @@ def test_action_semantics_no_gateway_execution(db_session, monkeypatch):
         return {"status": "SUCCEEDED"}
         
     import app.services.razorpay_mock as razorpay_mock
-    monkeypatch.setattr(razorpay_mock.razorpay_service, "execute_recovery_action", mock_execute)
+    monkeypatch.setattr(razorpay_mock.MockGateway, "execute_recovery_action", mock_execute)
     
     # Force agent to recommend SEND_RECOVERY_MESSAGE
     import app.agents.diagnosis_agent as diagnosis_agent
