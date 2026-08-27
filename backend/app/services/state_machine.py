@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 # The 11 canonical financial states
 VALID_TRANSITIONS = {
     "PENDING": ["AUTHORIZED", "STOPPED", "ESCALATED", "WAITING", "AWAITING_CUSTOMER", "UNKNOWN"],
-    "AUTHORIZED": ["EXECUTING"],
+    "AUTHORIZED": ["EXECUTING", "UNKNOWN", "STOPPED"],
     "EXECUTING": ["SUCCEEDED", "FAILED", "UNKNOWN"],
     "UNKNOWN": ["VERIFYING"],
     "VERIFYING": ["SUCCEEDED", "FAILED", "UNKNOWN", "ESCALATED"],

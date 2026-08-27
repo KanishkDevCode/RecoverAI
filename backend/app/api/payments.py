@@ -108,8 +108,7 @@ def create_payment(
         db.commit()
     except IntegrityError:
         db.rollback()
-        if not idempotency_key:
-            raise HTTPException(status_code=409, detail=f"Transaction {request.id} already exists")
+        raise HTTPException(status_code=409, detail=f"Transaction {request.id} already exists")
     
     response_data = None
     

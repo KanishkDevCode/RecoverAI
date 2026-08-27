@@ -16,12 +16,12 @@ class RefundService:
         """
         Validates the transaction state and initiates a refund securely.
         """
-        txn = self.db.query(Transaction).filter(Transaction.id == transaction_id).first()
+        # 1. Validation with Row-level Lock
+        txn = self.db.query(Transaction).filter(Transaction.id == transaction_id).with_for_update().first()
         if not txn:
             logger.error(f"RefundService: Transaction {transaction_id} not found")
             return {"status": "FAILED", "result_message": "Transaction not found"}
             
-        # 1. Validation
         if txn.status != "success" and txn.recovery_status != "SUCCEEDED":
             logger.error(f"RefundService: Transaction {transaction_id} not eligible for refund. Status: {txn.status}, Recovery: {txn.recovery_status}")
             return {"status": "FAILED", "result_message": "Only successfully captured payments can be refunded"}
@@ -32,8 +32,21 @@ class RefundService:
             
         # 2. State Transition: REQUESTED
         old_status = txn.refund_status
-        txn.refund_status = "REFUND_REQUESTED"
-        txn.refund_amount = txn.amount
+        
+        # Optimistic concurrency check (since SQLite ignores with_for_update)
+        updated_rows = self.db.query(Transaction).filter(
+            Transaction.id == transaction_id,
+            Transaction.refund_status == old_status
+        ).update({
+            "refund_status": "REFUND_REQUESTED",
+            "refund_amount": txn.amount
+        })
+        
+        if updated_rows == 0:
+            self.db.rollback()
+            logger.warning(f"RefundService: Concurrency collision for {transaction_id}. Refund already initiated by another thread.")
+            return {"status": "FAILED", "result_message": "Refund already in progress (concurrency conflict)"}
+            
         self.db.commit()
         self._audit(transaction_id, old_status, "REFUND_REQUESTED", "Refund initiated by user")
         

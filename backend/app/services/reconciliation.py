@@ -52,15 +52,25 @@ def reconcile_orphaned_attempts(db: Session):
     cutoff_time = datetime.utcnow() - timedelta(seconds=timeout_seconds)
     
     orphans = db.query(RecoveryAttempt).filter(
-        RecoveryAttempt.outcome_status.in_(["PENDING", "EXECUTING", "VERIFYING"]),
+        RecoveryAttempt.outcome_status.in_(["PENDING", "AUTHORIZED", "EXECUTING", "VERIFYING"]),
         RecoveryAttempt.created_at < cutoff_time
     ).all()
     
     for attempt in orphans:
-        logger.warning(f"Found orphaned attempt {attempt.id} in state {attempt.outcome_status}. Marking UNKNOWN.")
+        logger.warning(f"Found orphaned attempt {attempt.id} in state {attempt.outcome_status}.")
         try:
-            # We safely transition to UNKNOWN because execution might be ambiguous
-            transition_recovery_attempt(db, attempt.id, "UNKNOWN", reason="Timeout orphan cleanup")
+            if attempt.outcome_status == "AUTHORIZED":
+                # Check for evidence of execution
+                idem_record = db.query(IdempotencyRecord).filter(IdempotencyRecord.attempt_id == attempt.id).first()
+                if idem_record:
+                    logger.warning(f"Orphan {attempt.id} (AUTHORIZED) has idempotency record {idem_record.key}. Transitioning to UNKNOWN.")
+                    transition_recovery_attempt(db, attempt.id, "UNKNOWN", reason="Timeout orphan cleanup with execution evidence")
+                else:
+                    logger.warning(f"Orphan {attempt.id} (AUTHORIZED) has NO execution evidence. Transitioning to STOPPED.")
+                    transition_recovery_attempt(db, attempt.id, "STOPPED", reason="Timeout orphan cleanup without execution evidence")
+            else:
+                # We safely transition to UNKNOWN because execution might be ambiguous
+                transition_recovery_attempt(db, attempt.id, "UNKNOWN", reason="Timeout orphan cleanup")
         except ConcurrencyError:
             logger.warning(f"Concurrency conflict while cleaning orphan {attempt.id}. Skipping.")
         except Exception as e:
@@ -79,19 +89,19 @@ def reconcile_stuck_refunds(db: Session):
     cutoff_time = datetime.utcnow() - timedelta(seconds=timeout_seconds)
     
     stuck_refunds = db.query(Transaction).filter(
-        Transaction.refund_status.in_(["REFUND_PROCESSING", "REFUND_UNKNOWN"]),
+        Transaction.refund_status.in_(["REFUND_REQUESTED", "REFUND_PROCESSING", "REFUND_UNKNOWN"]),
         Transaction.updated_at < cutoff_time
     ).all()
     
     gateway = get_gateway()
     
     for txn in stuck_refunds:
-        logger.info(f"Reconciling stuck refund for transaction {txn.id}")
+        logger.info(f"Reconciling stuck refund for transaction {txn.id} in state {txn.refund_status}")
         try:
             old_status = txn.refund_status
             new_status = gateway.verify_refund(db, txn.id)
             
-            if new_status in ["REFUNDED", "REFUND_FAILED"] and new_status != old_status:
+            if new_status in ["REFUNDED", "REFUND_FAILED", "REFUND_UNKNOWN"] and new_status != old_status:
                 txn.refund_status = new_status
                 db.commit()
                 

@@ -110,6 +110,11 @@ def _process_refund_completed(db: Session, transaction_id: str, event_id: str):
     if txn.refund_status == "REFUNDED":
         return # Already refunded
         
+    # P2 Webhook intent validation: Only transition if refund was initiated
+    if txn.refund_status not in ["REFUND_REQUESTED", "REFUND_PROCESSING"]:
+        logger.warning(f"Webhook {event_id} ignored: Transaction {transaction_id} is in invalid state for refund completion ({txn.refund_status})")
+        return
+        
     old_status = txn.refund_status
     txn.refund_status = "REFUNDED"
     db.commit()
@@ -133,6 +138,11 @@ def _process_refund_failed(db: Session, transaction_id: str, event_id: str):
         return
         
     if txn.refund_status in ["REFUNDED", "REFUND_FAILED"]:
+        return
+        
+    # P2 Webhook intent validation: Only transition if refund was initiated
+    if txn.refund_status not in ["REFUND_REQUESTED", "REFUND_PROCESSING"]:
+        logger.warning(f"Webhook {event_id} ignored: Transaction {transaction_id} is in invalid state for refund failure ({txn.refund_status})")
         return
         
     old_status = txn.refund_status

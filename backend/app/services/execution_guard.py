@@ -48,11 +48,23 @@ class ExecutionGuard:
             logger.error(f"ExecutionGuard blocked execution: Attempt {attempt_id} is in state {attempt.outcome_status}, expected AUTHORIZED.")
             return {"status": "FAILED", "result_message": "ExecutionGuard blocked: Not in AUTHORIZED state."}
             
-        # 5. Terminal State & Replay Check
-        # Ensure we haven't already executed this (idempotency relies on keys, but we can also prevent blind retries here)
-        if txn.recovery_status in ["SUCCEEDED", "FAILED"]:
+        # 5. Terminal State & Replay Check (Crash-safe boundary)
+        if txn.recovery_status in ["SUCCEEDED"]:
             logger.error(f"ExecutionGuard blocked execution: Transaction {transaction_id} is in a terminal recovery state: {txn.recovery_status}.")
             return {"status": "FAILED", "result_message": f"ExecutionGuard blocked: Transaction already terminal ({txn.recovery_status})."}
+            
+        # Instead of just checking txn.recovery_status (which might not be written if a crash occurs post-gateway),
+        # we inspect ALL attempts for this transaction to see if ANY execution could have started/finished.
+        existing_attempts = self.db.query(RecoveryAttempt).filter(RecoveryAttempt.transaction_id == transaction_id).all()
+        
+        # Deny-by-default: only states that provably guarantee no gateway execution are allowed
+        SAFE_RETRY_STATES = {"PENDING", "AUTHORIZED", "STOPPED", "WAITING", "AWAITING_CUSTOMER"}
+        
+        for existing in existing_attempts:
+            if existing.id != attempt_id:
+                if existing.outcome_status not in SAFE_RETRY_STATES:
+                    logger.error(f"ExecutionGuard blocked execution: Transaction {transaction_id} already has attempt {existing.id} in state {existing.outcome_status}.")
+                    return {"status": "FAILED", "result_message": f"ExecutionGuard blocked: Conflicting attempt {existing.id} in state {existing.outcome_status}."}
 
         # 6. Execute via Gateway
         logger.info(f"ExecutionGuard invariants passed. Passing to gateway for {transaction_id}.")
