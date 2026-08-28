@@ -12,31 +12,21 @@ from app.models.db_models import Transaction, IdempotencyRecord
 from app.schemas.transaction import PaymentCreateRequest, TransactionIncoming
 from app.services.money import to_minor_units
 from app.services.orchestrator import RecoveryOrchestrator
+from app.worker.tasks import process_orchestrator
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-def run_orchestrator_bg(transaction: TransactionIncoming):
-    db = SessionLocal()
-    try:
-        orchestrator = RecoveryOrchestrator(db)
-        orchestrator.process_transaction(transaction)
-    except Exception as e:
-        logger.error(f"Error processing recovery: {e}")
-    finally:
-        db.close()
-
 @router.post("/payments", dependencies=[Depends(rate_limit)])
 def create_payment(
     request: PaymentCreateRequest,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     api_key: str = Depends(get_api_key),
     idempotency_key: str = Header(None, alias="Idempotency-Key")
 ):
     """
     Simulates an initial payment gateway attempt.
-    If it fails, it saves the transaction and triggers RecoverAI in the background.
+    If it fails, it saves the transaction and triggers RecoverAI durably via Celery.
     """
     # 0. API Idempotency Check
     scoped_key = None
@@ -115,19 +105,17 @@ def create_payment(
     if is_success:
         response_data = {"transaction_id": request.id, "status": "SUCCEEDED", "message": "Payment completed successfully"}
     else:
-        # 3. If failed, format for orchestrator and start background task
-        txn_incoming = TransactionIncoming(
-            id=request.id,
-            customer_id=request.customer_id,
-            amount=request.amount,
-            currency=request.currency,
-            payment_status="failed",
-            payment_method=request.payment_method,
-            failure_code=failure_code,
-            failure_reason=failure_reason,
-            retry_count=retry_count
-        )
-        background_tasks.add_task(run_orchestrator_bg, txn_incoming)
+        # 3. If failed, start background task via Celery
+        try:
+            from app.config import settings
+            if settings.CELERY_BROKER_URL:
+                process_orchestrator.delay(request.id)
+            else:
+                # Should not reach here if production validate() passes, but safe fallback logic
+                logger.error("CELERY_BROKER_URL not configured.")
+        except Exception as e:
+            logger.error(f"Failed to enqueue orchestration task: {e}")
+            
         response_data = {"transaction_id": request.id, "status": "PROCESSING", "message": "Payment failed. Handing off to RecoverAI."}
         
     # 4. Finalize Idempotency Record

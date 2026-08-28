@@ -9,7 +9,6 @@ from app.services.refund_service import get_refund_service
 from app.services.orchestrator import RecoveryOrchestrator
 from app.services.execution_guard import get_execution_guard
 from app.services.reconciliation import reconcile_orphaned_attempts
-from app.api.webhooks import _process_refund_completed
 from app.schemas.transaction import PaymentCreateRequest
 from fastapi.testclient import TestClient
 from app.main import app
@@ -209,9 +208,8 @@ def test_authorized_orphan_with_evidence(db_session):
     attempt = db_session.query(RecoveryAttempt).filter(RecoveryAttempt.id == attempt_id).first()
     assert attempt.outcome_status == "UNKNOWN"
 
-# ---------------------------------------------------------
-# P2: WEBHOOK INTENT VALIDATION
-# ---------------------------------------------------------
+from app.worker.tasks import process_webhook
+
 def test_webhook_intent_validation(db_session):
     """
     A webhook should not blindly transition a transaction to REFUNDED
@@ -228,8 +226,18 @@ def test_webhook_intent_validation(db_session):
     ))
     db_session.commit()
 
+    event_id = "evt_123"
+    db_session.add(WebhookEvent(
+        event_id=event_id,
+        event_type="refund.completed",
+        transaction_id=txn_id,
+        payload_hash="dummy",
+        payload="{}"
+    ))
+    db_session.commit()
+
     # Simulate webhook calling internal function
-    _process_refund_completed(db_session, txn_id, "evt_123")
+    process_webhook(event_id)
     
     db_session.expire_all()
     txn = db_session.query(Transaction).filter(Transaction.id == txn_id).first()
@@ -239,7 +247,17 @@ def test_webhook_intent_validation(db_session):
     txn.refund_status = "REFUND_REQUESTED"
     db_session.commit()
     
-    _process_refund_completed(db_session, txn_id, "evt_124")
+    event_id2 = "evt_124"
+    db_session.add(WebhookEvent(
+        event_id=event_id2,
+        event_type="refund.completed",
+        transaction_id=txn_id,
+        payload_hash="dummy",
+        payload="{}"
+    ))
+    db_session.commit()
+
+    process_webhook(event_id2)
     db_session.expire_all()
     txn = db_session.query(Transaction).filter(Transaction.id == txn_id).first()
     assert txn.refund_status == "REFUNDED", "Webhook failed to process valid intent"

@@ -11,6 +11,10 @@ class Settings:
         self.LLM_PROVIDER = os.getenv("LLM_PROVIDER", "mock")
         self.GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
         
+        # Celery Configuration
+        self.CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+        self.CELERY_TASK_ALWAYS_EAGER = os.getenv("CELERY_TASK_ALWAYS_EAGER", "false").lower() == "true"
+        
         # In development, we can fall back to a default key if not provided. 
         # In production, it MUST be provided via env.
         env_key = os.getenv("MERCHANT_API_KEY")
@@ -41,11 +45,20 @@ class Settings:
 
     def validate(self):
         if self.ENVIRONMENT == "production":
+            if not self.DATABASE_URL or self.DATABASE_URL.startswith("sqlite"):
+                raise ValueError("SECURITY ERROR: DATABASE_URL must be set to a non-SQLite database in production.")
+                
             if not self.MERCHANT_API_KEY:
                 raise ValueError("SECURITY ERROR: MERCHANT_API_KEY must be set in production.")
                 
             if not self.WEBHOOK_SECRET:
                 raise ValueError("SECURITY ERROR: WEBHOOK_SECRET must be set in production.")
+            
+            if not os.getenv("CELERY_BROKER_URL"):
+                raise ValueError("SECURITY ERROR: CELERY_BROKER_URL must be explicitly set in production.")
+            
+            if self.CELERY_TASK_ALWAYS_EAGER:
+                raise ValueError("SECURITY ERROR: CELERY_TASK_ALWAYS_EAGER cannot be True in production.")
             
             # Explicit check against empty/missing in prod
             if not os.getenv("CORS_ALLOWED_ORIGINS"):

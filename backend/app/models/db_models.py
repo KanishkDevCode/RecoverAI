@@ -71,4 +71,6 @@ class WebhookEvent(Base):
     payload = Column(Text)
     received_at = Column(DateTime(timezone=True), server_default=func.now())
     processed_at = Column(DateTime(timezone=True), nullable=True)
-    processing_status = Column(String, default="PENDING") # PENDING, PROCESSED, FAILED, DUPLICATE
+    processing_status = Column(String, default="PENDING") # PENDING, PROCESSED, FAILED, DUPLICATE, FAILED_PERMANENTLY
+    retry_count = Column(Integer, default=0, nullable=False)
+    last_attempt_at = Column(DateTime(timezone=True), nullable=True)

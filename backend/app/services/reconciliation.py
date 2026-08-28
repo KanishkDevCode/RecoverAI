@@ -117,3 +117,37 @@ def reconcile_stuck_refunds(db: Session):
                 
         except Exception as e:
             logger.error(f"Error during refund reconciliation for {txn.id}: {e}")
+
+def reconcile_pending_webhooks(db: Session):
+    """
+    Finds WebhookEvents stuck in PENDING or FAILED state and re-enqueues them.
+    Respects retry budget and avoids concurrent enqueueing.
+    """
+    from app.models.db_models import WebhookEvent
+    from app.worker.tasks import process_webhook, MAX_WEBHOOK_RETRIES
+    from sqlalchemy import or_, and_
+    
+    timeout_seconds = 300
+    cutoff_time = datetime.utcnow() - timedelta(seconds=timeout_seconds)
+    
+    stuck_events = db.query(WebhookEvent).filter(
+        or_(
+            and_(WebhookEvent.processing_status == "PENDING", WebhookEvent.received_at < cutoff_time),
+            and_(
+                WebhookEvent.processing_status == "FAILED", 
+                WebhookEvent.retry_count < MAX_WEBHOOK_RETRIES,
+                WebhookEvent.last_attempt_at < cutoff_time
+            )
+        )
+    ).with_for_update(skip_locked=True).all()
+    
+    for event in stuck_events:
+        logger.info(f"Reconciling stuck webhook event {event.event_id} (retry {event.retry_count}/{MAX_WEBHOOK_RETRIES})")
+        try:
+            # Update last_attempt_at so concurrent reconcilers or next sweeps won't pick it up immediately
+            event.last_attempt_at = datetime.utcnow()
+            db.commit()
+            process_webhook.apply_async(args=[event.event_id], queue="high_priority")
+        except Exception as e:
+            logger.error(f"Error re-enqueueing webhook event {event.event_id}: {e}")
+            db.rollback()

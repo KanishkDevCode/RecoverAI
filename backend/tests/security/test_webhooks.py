@@ -63,6 +63,15 @@ def test_webhook_valid_signature_success():
     assert response.json()["status"] == "ok"
     
     db = TestingSessionLocal()
+    event = db.query(WebhookEvent).filter(WebhookEvent.event_id == "evt_1").first()
+    assert event is not None
+    assert event.processing_status == "PENDING"
+    
+    # Process webhook to test end-to-end
+    from app.worker.tasks import process_webhook
+    process_webhook("evt_1")
+    
+    db.expire_all()
     txn = db.query(Transaction).filter(Transaction.id == "txn_1").first()
     assert txn.refund_status == "REFUNDED"
     

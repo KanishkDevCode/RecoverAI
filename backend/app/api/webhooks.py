@@ -76,85 +76,14 @@ async def gateway_webhook(
         # If it's still pending/failed, we will re-attempt processing
         webhook_event = existing_event
 
-    # 3. Process the Webhook
+    # 3. Process the Webhook asynchronously
     try:
-        if event_type == "refund.completed":
-            _process_refund_completed(db, transaction_id, webhook_event.event_id)
-        elif event_type == "refund.failed":
-            _process_refund_failed(db, transaction_id, webhook_event.event_id)
-        else:
-            logger.info(f"Ignoring unhandled webhook event type: {event_type}")
-            
-        webhook_event.processing_status = "PROCESSED"
-        webhook_event.processed_at = datetime.utcnow()
-        db.commit()
-        
+        from app.worker.tasks import process_webhook
+        process_webhook.apply_async(args=[webhook_event.event_id], queue="high_priority")
     except Exception as e:
-        logger.error(f"Error processing webhook {event_id}: {e}")
-        webhook_event.processing_status = "FAILED"
-        webhook_event.processed_at = datetime.utcnow()
-        db.commit()
-        raise HTTPException(status_code=500, detail="Internal server error during processing")
+        logger.error(f"Error enqueueing webhook task {event_id}: {e}")
+        # We do NOT fail the request. The WebhookEvent is persisted in PostgreSQL.
+        # Reconciliation will pick it up and re-enqueue it.
+        pass
         
     return {"status": "ok"}
-
-def _process_refund_completed(db: Session, transaction_id: str, event_id: str):
-    if not transaction_id:
-        return
-        
-    txn = db.query(Transaction).filter(Transaction.id == transaction_id).first()
-    if not txn:
-        logger.warning(f"Webhook {event_id} references unknown transaction {transaction_id}")
-        return
-        
-    if txn.refund_status == "REFUNDED":
-        return # Already refunded
-        
-    # P2 Webhook intent validation: Only transition if refund was initiated
-    if txn.refund_status not in ["REFUND_REQUESTED", "REFUND_PROCESSING"]:
-        logger.warning(f"Webhook {event_id} ignored: Transaction {transaction_id} is in invalid state for refund completion ({txn.refund_status})")
-        return
-        
-    old_status = txn.refund_status
-    txn.refund_status = "REFUNDED"
-    db.commit()
-    
-    audit = AuditLog(
-        transaction_id=transaction_id,
-        event_type="REFUND_STATE_CHANGE",
-        previous_state=old_status,
-        new_state="REFUNDED",
-        reasoning=f"Webhook event: {event_id}"
-    )
-    db.add(audit)
-    db.commit()
-
-def _process_refund_failed(db: Session, transaction_id: str, event_id: str):
-    if not transaction_id:
-        return
-        
-    txn = db.query(Transaction).filter(Transaction.id == transaction_id).first()
-    if not txn:
-        return
-        
-    if txn.refund_status in ["REFUNDED", "REFUND_FAILED"]:
-        return
-        
-    # P2 Webhook intent validation: Only transition if refund was initiated
-    if txn.refund_status not in ["REFUND_REQUESTED", "REFUND_PROCESSING"]:
-        logger.warning(f"Webhook {event_id} ignored: Transaction {transaction_id} is in invalid state for refund failure ({txn.refund_status})")
-        return
-        
-    old_status = txn.refund_status
-    txn.refund_status = "REFUND_FAILED"
-    db.commit()
-    
-    audit = AuditLog(
-        transaction_id=transaction_id,
-        event_type="REFUND_STATE_CHANGE",
-        previous_state=old_status,
-        new_state="REFUND_FAILED",
-        reasoning=f"Webhook event: {event_id}"
-    )
-    db.add(audit)
-    db.commit()

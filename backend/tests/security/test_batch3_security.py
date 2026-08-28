@@ -68,6 +68,18 @@ def test_production_missing_secret_fails_closed():
     from app.config import Settings
     
     os.environ["ENVIRONMENT"] = "production"
+    
+    # Needs a mock DATABASE_URL to pass the database check so we can test the other secrets
+    # The new rule requires a non-sqlite database URL in production
+    if "DATABASE_URL" in os.environ:
+        del os.environ["DATABASE_URL"]
+        
+    with pytest.raises(ValueError) as excinfo:
+        Settings()
+    assert "DATABASE_URL must be set to a non-SQLite database in production" in str(excinfo.value)
+    
+    os.environ["DATABASE_URL"] = "postgresql://user:pass@localhost:5432/db"
+    
     if "MERCHANT_API_KEY" in os.environ:
         del os.environ["MERCHANT_API_KEY"]
     if "WEBHOOK_SECRET" in os.environ:
@@ -88,6 +100,11 @@ def test_production_missing_secret_fails_closed():
     os.environ["WEBHOOK_SECRET"] = "prod_webhook_key"
     with pytest.raises(ValueError) as excinfo:
         Settings()
+    assert "CELERY_BROKER_URL must be explicitly set" in str(excinfo.value)
+
+    os.environ["CELERY_BROKER_URL"] = "redis://localhost:6379/0"
+    with pytest.raises(ValueError) as excinfo:
+        Settings()
     assert "CORS_ALLOWED_ORIGINS must be explicitly set" in str(excinfo.value)
     
     os.environ["CORS_ALLOWED_ORIGINS"] = "*"
@@ -95,6 +112,13 @@ def test_production_missing_secret_fails_closed():
         Settings()
     assert "cannot be '*'" in str(excinfo.value)
     
+    os.environ["CORS_ALLOWED_ORIGINS"] = "https://example.com"
+    # Now it should succeed
+    s = Settings()
+    assert s.ENVIRONMENT == "production"
+    
     # Restore defaults so other tests don't break
     os.environ["ENVIRONMENT"] = "development"
     os.environ["CORS_ALLOWED_ORIGINS"] = "http://localhost:5173"
+    if "DATABASE_URL" in os.environ:
+        del os.environ["DATABASE_URL"]
