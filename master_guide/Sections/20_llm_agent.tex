@@ -24,7 +24,7 @@ RecoverAI V2 is entirely agnostic to the underlying LLM provider. The system use
     factory/.style={rectangle, draw=primary, thick, fill=primary!10, minimum width=3.5cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries, align=center},
     provider/.style={rectangle, draw=textdark, thick, fill=white, minimum width=2.5cm, minimum height=0.8cm, rounded corners=4pt, font=\scriptsize\ttfamily},
     arrow/.style={-{Stealth[scale=1.1]}, thick, draw=textdark},
-    dashed_arrow/.style={-{Stealth[scale=1.1]}, thick, draw=textmuted, dashed}
+    dashedarrow/.style={-{Stealth[scale=1.1]}, thick, draw=textmuted, dashed}
 ]
 
     \node[factory] (factory) {LLM Provider Factory\\(\code{get\_llm\_provider()})};
@@ -33,8 +33,8 @@ RecoverAI V2 is entirely agnostic to the underlying LLM provider. The system use
     \node[provider, right=2cm of factory] (ollama) {OllamaProvider};
     \node[provider, below right=0.2cm and 2cm of factory] (mock) {MockProvider};
     
-    \draw[dashed_arrow] (factory) -- node[above, font=\tiny, sloped] {If \code{provider=openai}} (openai.west);
-    \draw[dashed_arrow] (factory) -- node[above, font=\tiny, sloped] {If \code{provider=ollama}} (ollama.west);
+    \draw[dashedarrow] (factory) -- node[above, font=\tiny, sloped] {If \code{provider=openai}} (openai.west);
+    \draw[dashedarrow] (factory) -- node[above, font=\tiny, sloped] {If \code{provider=ollama}} (ollama.west);
     \draw[arrow] (factory) -- node[below, font=\tiny, sloped] {If \code{provider=mock} (Default)} (mock.west);
 
 \end{tikzpicture}
