@@ -21,7 +21,7 @@ jobs:
           working_directory: master_guide
           root_file: recoverai_master_guide.tex
           compiler: latexmk
-          args: -pdf -interaction=nonstopmode -halt-on-error
+          args: -lualatex -interaction=nonstopmode -halt-on-error
 
       - name: Upload PDF Artifact
         uses: actions/upload-artifact@v4
