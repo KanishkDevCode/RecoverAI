@@ -75,7 +75,7 @@ In simple terms, here is what happens when a payment fails and RecoverAI process
 \begin{center}
 \begin{tikzpicture}[
     node distance=0.8cm,
-    stepbox/.style={rectangle, draw=primary!60, thick, fill=bglight, minimum width=4.5cm, minimum height=1cm, rounded corners=4pt, font=\small, text=textdark, drop shadow=black!5},
+    stepbox/.style={rectangle, draw=primary!60, thick, fill=bglight, minimum width=4.5cm, minimum height=1cm, rounded corners=4pt, font=\small, text=textdark, drop shadow=black!5, align=center},
     arrow/.style={-{Stealth[scale=1.1]}, thick, draw=primary!60},
     label/.style={font=\scriptsize\itshape, text=textmuted, align=center}
 ]
@@ -183,7 +183,7 @@ The original RecoverAI V2 codebase had the following structural weaknesses that 
 \begin{center}
 \begin{tikzpicture}[
     node distance=0.5cm,
-    weak/.style={rectangle, draw=danger!50, thick, fill=danger!5, minimum width=7cm, minimum height=0.8cm, rounded corners=3pt, font=\small, text=textdark},
+    weak/.style={rectangle, draw=danger!50, thick, fill=danger!5, minimum width=7cm, minimum height=0.8cm, rounded corners=3pt, font=\small, text=textdark, align=center},
 ]
     \node[weak] (w1) {No row-level locking on financial state transitions};
     \node[weak, below=of w1] (w2) {No crash-safe execution boundary};

@@ -21,7 +21,7 @@ The original application exposed all endpoints globally with no authentication. 
 \begin{center}
 \begin{tikzpicture}[
     node distance=1.5cm,
-    actor/.style={circle, draw=textdark, thick, fill=bglight, minimum size=1.2cm, font=\small\bfseries},
+    actor/.style={circle, draw=textdark, thick, fill=bglight, minimum size=1.2cm, font=\small\bfseries, align=center},
     layer/.style={rectangle, draw=primary, thick, fill=primary!10, minimum width=2.5cm, minimum height=1.2cm, rounded corners=3pt, font=\small\bfseries, align=center},
     core/.style={rectangle, draw=success, thick, fill=success!10, minimum width=3cm, minimum height=1.2cm, rounded corners=3pt, font=\small\bfseries, align=center},
     arrow/.style={-{Stealth[scale=1.1]}, thick, draw=textdark}
@@ -66,8 +66,8 @@ Webhooks represent a dangerous attack surface: they are unauthenticated POST req
 \begin{center}
 \begin{tikzpicture}[
     node distance=1.5cm,
-    gateway/.style={rectangle, draw=accent, thick, fill=bglight, minimum width=3cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries},
-    payload/.style={rectangle, draw=textdark, dashed, minimum width=2.5cm, minimum height=0.8cm, font=\scriptsize},
+    gateway/.style={rectangle, draw=accent, thick, fill=bglight, minimum width=3cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries, align=center},
+    payload/.style={rectangle, draw=textdark, dashed, minimum width=2.5cm, minimum height=0.8cm, font=\scriptsize, align=center},
     api/.style={rectangle, draw=primary, thick, fill=primary!10, minimum width=4cm, minimum height=1.5cm, rounded corners=4pt, font=\small\bfseries, align=center},
     arrow/.style={-{Stealth[scale=1.1]}, thick, draw=textdark}
 ]

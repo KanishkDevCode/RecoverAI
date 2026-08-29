@@ -21,10 +21,10 @@ The initial architecture was highly coupled. The API layer, orchestration logic,
 \begin{center}
 \begin{tikzpicture}[
     node distance=0.8cm and 1.5cm,
-    api/.style={rectangle, draw=secondary, thick, fill=bglight, minimum width=3.5cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries, text=textdark, drop shadow=black!5},
-    logic/.style={rectangle, draw=primary, thick, fill=bglight, minimum width=3.5cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries, text=textdark, drop shadow=black!5},
-    db/.style={cylinder, draw=accent, thick, fill=bglight, shape border rotate=90, aspect=0.25, minimum width=3cm, minimum height=1.5cm, font=\small\bfseries, text=textdark, drop shadow=black!5},
-    gateway/.style={rectangle, draw=textdark, thick, fill=textdark!10, minimum width=3cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries, text=textdark, dashed},
+    api/.style={rectangle, draw=secondary, thick, fill=bglight, minimum width=3.5cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries, text=textdark, drop shadow=black!5, align=center},
+    logic/.style={rectangle, draw=primary, thick, fill=bglight, minimum width=3.5cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries, text=textdark, drop shadow=black!5, align=center},
+    db/.style={cylinder, draw=accent, thick, fill=bglight, shape border rotate=90, aspect=0.25, minimum width=3cm, minimum height=1.5cm, font=\small\bfseries, text=textdark, drop shadow=black!5, align=center},
+    gateway/.style={rectangle, draw=textdark, thick, fill=textdark!10, minimum width=3cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries, text=textdark, dashed, align=center},
     arrow/.style={-{Stealth[scale=1.1]}, thick, draw=textmuted},
     dangerarrow/.style={-{Stealth[scale=1.1]}, thick, draw=danger, dashed}
 ]
@@ -141,8 +141,8 @@ A defining feature of the original architecture was the lack of strict \textbf{s
 \begin{tikzpicture}[
     node distance=1.5cm,
     client/.style={circle, draw=primary, thick, fill=bglight, minimum size=1.5cm, align=center, font=\small\bfseries},
-    api/.style={rectangle, draw=secondary, thick, fill=bglight, minimum width=3cm, minimum height=1cm, rounded corners=4pt},
-    gateway/.style={rectangle, draw=accent, thick, fill=bglight, minimum width=3cm, minimum height=1cm, rounded corners=4pt},
+    api/.style={rectangle, draw=secondary, thick, fill=bglight, minimum width=3cm, minimum height=1cm, rounded corners=4pt, align=center},
+    gateway/.style={rectangle, draw=accent, thick, fill=bglight, minimum width=3cm, minimum height=1cm, rounded corners=4pt, align=center},
     arrow/.style={-{Stealth[scale=1.1]}, thick, draw=textdark},
     cross/.style={draw=danger, ultra thick, -, align=center}
 ]
