@@ -143,9 +143,9 @@ With financial safety mathematically proven by Batch 4.6, Batch 5 shifted focus 
 \begin{center}
 \begin{tikzpicture}[
     node distance=0.5cm,
-    step/.style={rectangle, draw=secondary, thick, fill=white, minimum width=12cm, minimum height=0.8cm, rounded corners=2pt, font=\small, text=textdark, align=left},
+    stepbox/.style={rectangle, draw=secondary, thick, fill=white, minimum width=12cm, minimum height=0.8cm, rounded corners=2pt, font=\small, text=textdark, align=left},
 ]
-    \node[step] (b5) {\textbf{Batch 5.0:} Target state definition (PostgreSQL, Celery, Redis)};
+    \node[stepbox] (b5) {\textbf{Batch 5.0:} Target state definition (PostgreSQL, Celery, Redis)};
     \node[step, below=of b5] (b52) {\textbf{Batch 5.2:} Replaced FastAPI \code{BackgroundTasks} with Celery + Redis for durable orchestrations.};
     \node[step, below=of b52] (b53) {\textbf{Batch 5.3:} Migrated webhook processing to durable Celery background tasks.};
     \node[step, below=of b53] (b531) {\textbf{Batch 5.3.1 (Current):} Implemented bounded webhook retry limits to prevent poison-pill queue starvation.};
