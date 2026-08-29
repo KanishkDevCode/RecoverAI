@@ -1,0 +1,115 @@
+% ============================================================
+% SECTION 13 — WEBHOOK ARCHITECTURE
+% ============================================================
+
+\section{Webhook Architecture}
+
+\begin{tcolorbox}[summarybox={\iconFlow[1.5] Asynchronous Event Ingestion}]
+\color{textdark}
+Because financial recoveries and refunds involve real-world banking networks, gateways often cannot provide synchronous success/failure responses. Instead, they return an intermediate status and asynchronously notify RecoverAI via \textbf{Webhooks} when the transaction clears the banking network hours or days later.
+
+The webhook architecture in RecoverAI V2 relies on the \textbf{Durable Inbox Pattern}. Webhooks are never processed inline during the HTTP request; they are safely stored in PostgreSQL and processed asynchronously by Celery.
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- THE DURABLE INBOX PATTERN ---
+\subsection{The Durable Inbox Pattern}
+
+When a gateway (like Razorpay or Stripe) sends a webhook, its primary requirement is speed. If the server does not respond with a \code{200 OK} within a few seconds, the gateway assumes the server is dead and schedules a retry. 
+
+Processing a webhook inline (updating the database, evaluating policies, triggering downstream events) is slow and risks timing out the gateway connection. To prevent this, RecoverAI uses an \textbf{Inbox}.
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=1.5cm,
+    gw/.style={rectangle, draw=accent, thick, fill=bglight, minimum width=2cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries},
+    api/.style={rectangle, draw=primary, thick, fill=primary!10, minimum width=2.5cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries, align=center},
+    db/.style={cylinder, draw=secondary, thick, fill=secondary!10, shape border rotate=90, aspect=0.25, minimum width=2.5cm, minimum height=1.5cm, font=\small\bfseries, align=center},
+    celery/.style={rectangle, draw=textdark, thick, fill=textdark!10, minimum width=2.5cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries, align=center},
+    arrow/.style={-{Stealth[scale=1.1]}, thick, draw=textdark}
+]
+
+    \node[gw] (gateway) {Gateway};
+    \node[api, right=of gateway] (api) {API\\(\filepath{webhooks.py})};
+    \node[db, right=of api] (db) {PostgreSQL\\(\code{webhook\_events})};
+    \node[celery, below=1cm of db] (celery) {Celery Worker\\(Background)};
+
+    % Ingestion
+    \draw[arrow] (gateway.15) -- node[above, font=\scriptsize] {POST JSON} (api.165);
+    \draw[arrow, draw=success] (api.195) -- node[below, font=\scriptsize, text=success] {200 OK (Instant)} (gateway.345);
+    
+    % DB save
+    \draw[arrow] (api.east) -- node[above, font=\scriptsize] {1. Save Raw} (db.west);
+    
+    % Processing
+    \draw[arrow] (db.south) -- node[right, font=\scriptsize] {2. Fetch \& Process} (celery.north);
+
+\end{tikzpicture}
+\end{center}
+
+\begin{tcolorbox}[featurebox={The Ingestion Flow}]
+\begin{enumerate}
+    \item \textbf{Receive \& Verify:} The API (\code{/api/v1/webhooks/gateway}) receives the payload and immediately verifies the HMAC-SHA256 signature.
+    \item \textbf{Durable Insert:} The raw JSON payload is inserted into the \code{webhook\_events} table with \code{status='PENDING'}. 
+    \item \textbf{Enqueue:} A Celery task (\code{process\_webhook.delay(event\_id)}) is fired.
+    \item \textbf{Acknowledge:} The API returns \code{200 OK} to the gateway, usually in under 50ms.
+\end{enumerate}
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- IDEMPOTENCY AGAINST RETRIES ---
+\subsection{Idempotency Against Network Retries}
+
+Gateways adhere to "At-Least-Once" delivery guarantees. If a network blip occurs after the API returns \code{200 OK} but before the gateway receives it, the gateway will retry the exact same webhook payload 5 minutes later.
+
+To prevent processing the same webhook twice, the \code{WebhookEvent} model uses the gateway's unique event ID (e.g., \code{evt\_12345}) as the \textbf{Primary Key} in the database.
+
+\begin{tcolorbox}[codebox={Webhook Idempotency (\filepath{app/api/webhooks.py})}]
+\begin{lstlisting}[language=Python]
+try:
+    # Uses the gateway's unique event ID as the Primary Key
+    db_event = WebhookEvent(
+        id=payload_dict.get("id"),  
+        payload=json.dumps(payload_dict),
+        status="PENDING",
+        event_type=payload_dict.get("event")
+    )
+    db.add(db_event)
+    db.commit()
+except IntegrityError:
+    # A duplicate webhook was delivered by the gateway.
+    # Safe to ignore; the first one is already in the inbox.
+    db.rollback()
+    logger.info(f"Duplicate webhook {event_id} safely ignored.")
+\end{lstlisting}
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- INTENT VALIDATION ---
+\subsection{Intent Validation (State Mutation Rules)}
+
+When the Celery worker processes a webhook (e.g., a \code{refund.processed} event), it does not blindly update the database to match the gateway's state. It applies \textbf{Intent Validation}.
+
+\begin{tcolorbox}[warningbox={\iconWarning[1.3] Defending Against Rogue Webhooks}]
+If a bug in the gateway causes it to send a \code{refund.processed} webhook for a transaction that RecoverAI never attempted to refund, blindly accepting it would ruin the internal financial state.
+\end{tcolorbox}
+
+As implemented in \filepath{app/api/webhooks.py}, the worker strictly validates that the system \textit{intended} for this outcome before accepting it:
+\begin{itemize}
+    \item \textbf{For Payments (\code{payment.captured}):} Allowed only if the \code{RecoveryAttempt} is in \state{EXECUTING} or \state{UNKNOWN}. If the attempt is already \state{SUCCEEDED} or \state{STOPPED}, the webhook is ignored.
+    \item \textbf{For Refunds (\code{refund.processed}):} Allowed only if \code{Transaction.refund\_status} is \refundstate{REFUND\_REQUESTED} or \refundstate{REFUND\_PROCESSING}. If the status is \refundstate{NONE}, the webhook is discarded as a rogue event.
+\end{itemize}
+
+\vspace{0.8cm}
+
+% --- THE BATCH 5.3.1 STARVATION FIX ---
+\subsection{Webhook Sweep Starvation (Batch 5.3.1)}
+
+While the Celery worker immediately picks up the webhook, crashes can occur. A separate \code{reconcile\_pending\_webhooks} Celery Beat task runs every 5 minutes to sweep the database for webhooks stuck in \code{PENDING} or \code{FAILED} and re-enqueues them.
+
+As detailed in the Adversarial Audits section (Section 9), this created an infinite loop if a webhook payload was permanently malformed (e.g., missing expected fields), causing it to fail parsing indefinitely.
+
+\textbf{The Remediation:} The \code{WebhookEvent} model tracks \code{retry\_count}. If \code{retry\_count} exceeds 3, the status is set to \webhookstate{FAILED\_PERMANENTLY}, and the reconciliation sweeper ignores it forever, ensuring the queue cannot be starved by poison pills.

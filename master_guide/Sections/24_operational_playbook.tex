@@ -1,0 +1,103 @@
+% ============================================================
+% SECTION 24 — OPERATIONAL PLAYBOOK
+% ============================================================
+
+\section{Operational Playbook}
+
+\begin{tcolorbox}[summarybox={\iconGear[1.5] Operating the System}]
+\color{textdark}
+This section serves as the DevOps runbook for RecoverAI V2. It details the exact sequence of commands required to boot the system safely, how to run database migrations, and how to manually intervene when the financial state machine requires human escalation.
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- BOOT SEQUENCE ---
+\subsection{System Boot Sequence}
+
+Because the system is distributed, the order in which components are started is critical.
+
+\begin{tcolorbox}[warningbox={Start the Workers First}]
+Always start the Redis broker and Celery workers \textit{before} the FastAPI application. If the API boots first and receives a request, it will attempt to connect to Redis. If Redis is down, the API will throw a 500 Internal Server Error.
+\end{tcolorbox}
+
+\subsubsection{Step 1: Start the Infrastructure}
+Ensure the underlying databases are running.
+\begin{lstlisting}[language=bash]
+# Standard local setup
+redis-server --port 6379
+# (PostgreSQL is managed via Docker or external hosting)
+\end{lstlisting}
+
+\subsubsection{Step 2: Apply Database Migrations}
+Always run Alembic before booting the application to ensure the schema matches the Python models.
+\begin{lstlisting}[language=bash]
+cd backend/
+alembic upgrade head
+\end{lstlisting}
+
+\subsubsection{Step 3: Start Celery Workers}
+Open two separate terminal windows (or configure supervisord) for the workers.
+\begin{lstlisting}[language=bash]
+# Terminal 1: High Priority Queue (Orchestrations)
+celery -A app.worker.celery_app worker -Q high_priority --loglevel=info
+
+# Terminal 2: Reconciliation Queue (Background Sweeps)
+celery -A app.worker.celery_app worker -Q reconciliation --loglevel=info
+\end{lstlisting}
+
+\subsubsection{Step 4: Start Celery Beat}
+Start the scheduler to fire the reconciliation jobs periodically.
+\begin{lstlisting}[language=bash]
+celery -A app.worker.celery_app beat --loglevel=info
+\end{lstlisting}
+
+\subsubsection{Step 5: Boot FastAPI}
+Finally, start the web server.
+\begin{lstlisting}[language=bash]
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+\end{lstlisting}
+
+\vspace{0.8cm}
+
+% --- INCIDENT RESPONSE ---
+\subsection{Incident Response: Manual Intervention}
+
+When the Policy Engine encounters a high-risk transaction or exceeds the retry budget, it transitions the attempt to \code{STOPPED} and flags the parent transaction with \code{CREATE\_ESCALATION}. 
+
+\subsubsection{Resolving an Escalation}
+These transactions require manual review by a human operator (or L2 support).
+\begin{enumerate}
+    \item \textbf{Review the AuditLog:} Check the database to see why the AI escalated it. Did the LLM recommend \code{RETRY\_PAYMENT} but the amount was \$10,000? Did the gateway return \code{fraud\_suspected}?
+    \item \textbf{Contact the Customer:} Support agents should contact the customer to resolve the underlying issue (e.g., updating their card on file).
+    \item \textbf{Manual Retry via API:} Once resolved out-of-band, an operator can force a manual retry by sending a POST request to \code{/recover} with a \textbf{new} \code{Idempotency-Key}. This creates a fresh \code{RecoveryAttempt} with \code{version=1}.
+\end{enumerate}
+
+\vspace{0.4cm}
+
+\subsubsection{Resolving an Orphaned UNKNOWN State}
+As documented in the State Machine section, if a network timeout occurs, a transaction may become stuck in the \state{UNKNOWN} state. 
+\begin{itemize}
+    \item \textbf{Automated Resolution:} The \code{reconcile\_pending\_webhooks} Celery Beat task will automatically detect this within 5 minutes. It will query the payment gateway for the final status and apply the correct state transition (\code{SUCCEEDED} or \code{FAILED}).
+    \item \textbf{Manual Fix:} If the Celery Beat scheduler is down, a DevOps engineer can manually trigger the sweep via the Python REPL:
+\end{itemize}
+
+\begin{tcolorbox}[codebox={Manual Sweep Trigger}]
+\begin{lstlisting}[language=Python]
+from app.worker.tasks import reconcile_pending_webhooks
+reconcile_pending_webhooks.delay()
+\end{lstlisting}
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- SECRETS ROTATION ---
+\subsection{Secrets Rotation}
+
+If the \code{MERCHANT\_API\_KEY} or \code{WEBHOOK\_SECRET} is compromised, follow this procedure:
+\begin{enumerate}
+    \item \textbf{Halt the API:} Shut down all FastAPI pods to stop incoming traffic. Let the Celery workers finish draining the existing Redis queues.
+    \item \textbf{Update the Gateway:} Generate a new webhook secret in the Razorpay/Stripe dashboard.
+    \item \textbf{Update Environment:} Modify the \filepath{.env} file (or Kubernetes Secrets) on the servers.
+    \item \textbf{Reboot:} Restart the FastAPI pods.
+    \item \textbf{Note on Idempotency:} Because Idempotency Keys are generated by hashing the incoming \code{X-API-Key}, rotating the API key will conceptually "reset" idempotency for the client. The client must be careful not to resend a duplicate payload with the new key, or the system will treat it as a new transaction.
+\end{enumerate}

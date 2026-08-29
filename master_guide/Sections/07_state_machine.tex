@@ -1,0 +1,155 @@
+% ============================================================
+% SECTION 7 — CANONICAL STATE MACHINE
+% ============================================================
+
+\section{Recovery State Machine}
+
+\begin{tcolorbox}[summarybox={\iconFlow[1.5] Tracking Financial Reality}]
+\color{textdark}
+At the core of RecoverAI V2 is the \textbf{Canonical State Machine}, defined in \filepath{app/services/state\_machine.py}. Because external gateways and internal processors can fail independently, the database must track exactly where a recovery attempt is in its lifecycle at any microsecond.
+
+Transitions are strictly enforced via a directed graph and protected by Optimistic Concurrency Control (the \code{version} column) to mathematically guarantee that race conditions cannot force a transition to bypass an intermediate state.
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- THE STATE GRAPH ---
+\subsection{The Directed State Graph}
+
+The following diagram illustrates every mathematically permitted state transition for a \code{RecoveryAttempt}. If the application attempts a transition not defined here (e.g., \code{PENDING} $\rightarrow$ \code{SUCCEEDED}), the \code{transition\_state} function throws a hard \code{ValueError}.
+
+\vspace{0.5cm}
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=1.8cm and 1.5cm,
+    state/.style={rectangle, draw=primary, thick, fill=bglight, minimum width=2.5cm, minimum height=0.8cm, rounded corners=4pt, font=\small\bfseries, drop shadow=black!5},
+    terminal/.style={rectangle, draw=textdark, thick, fill=textdark!10, minimum width=2.5cm, minimum height=0.8cm, rounded corners=4pt, font=\small\bfseries, drop shadow=black!5},
+    ambiguous/.style={rectangle, draw=warning, thick, fill=warning!10, minimum width=2.5cm, minimum height=0.8cm, rounded corners=4pt, font=\small\bfseries, drop shadow=black!5},
+    success/.style={rectangle, draw=success, thick, fill=success!10, minimum width=2.5cm, minimum height=0.8cm, rounded corners=4pt, font=\small\bfseries, drop shadow=black!5},
+    fail/.style={rectangle, draw=danger, thick, fill=danger!10, minimum width=2.5cm, minimum height=0.8cm, rounded corners=4pt, font=\small\bfseries, drop shadow=black!5},
+    arrow/.style={-{Stealth[scale=1.1]}, thick, draw=textdark},
+    label/.style={font=\scriptsize\itshape, text=textmuted}
+]
+
+    % Row 1
+    \node[state] (pending) {PENDING};
+    
+    % Row 2
+    \node[state, below=of pending] (auth) {AUTHORIZED};
+    
+    % Row 3
+    \node[state, below=of auth] (exec) {EXECUTING};
+    \node[terminal, right=1.5cm of auth] (stopped) {STOPPED};
+    
+    % Row 4
+    \node[ambiguous, below left=1.2cm and 0.5cm of exec] (unknown) {UNKNOWN};
+    \node[success, below=1.2cm of exec] (succ) {SUCCEEDED};
+    \node[fail, below right=1.2cm and 0.5cm of exec] (fail) {FAILED};
+    
+    % Row 5
+    \node[state, below=1cm of unknown] (verify) {VERIFYING};
+
+    % Transitions
+    \draw[arrow] (pending) -- (auth);
+    \draw[arrow] (pending) -- (stopped);
+    \draw[arrow] (auth) -- (exec);
+    
+    % B4.6 Fix: Auth orphans
+    \draw[arrow, draw=secondary, dashed] (auth) -| node[above right, font=\tiny, text=secondary] {Orphan} (stopped);
+    \draw[arrow, draw=secondary, dashed] (auth) -| node[above left, font=\tiny, text=secondary] {Crash} (unknown);
+    
+    % Exec to terminal/ambiguous
+    \draw[arrow] (exec) -- (succ);
+    \draw[arrow] (exec) -- (fail);
+    \draw[arrow] (exec) -| (unknown);
+    
+    % Unknown loop
+    \draw[arrow] (unknown) -- (verify);
+    \draw[arrow] (verify.east) to[out=0, in=180] (succ.west);
+    \draw[arrow] (verify.south) to[out=270, in=270] (fail.south);
+    \draw[arrow] (verify.west) to[out=180, in=180] (unknown.west);
+
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.5cm}
+
+% --- STATE DEFINITIONS ---
+\subsection{State Definitions}
+
+\begin{tcolorbox}[featurebox={Active States}]
+\begin{itemize}
+    \item \state{PENDING}: Created in the database, awaiting LLM diagnosis and policy evaluation.
+    \item \state{AUTHORIZED}: Policy engine has approved the action. Ready to be passed to \code{ExecutionGuard}.
+    \item \state{EXECUTING}: \code{ExecutionGuard} has passed the attempt to the gateway adapter. The network call is in flight.
+    \item \state{VERIFYING}: A background reconciliation worker is actively querying the gateway to resolve an \code{UNKNOWN} state.
+\end{itemize}
+\end{tcolorbox}
+
+\begin{tcolorbox}[warningbox={The Ambiguous State}]
+\begin{itemize}
+    \item \state{UNKNOWN}: The system lost connection to the gateway (e.g., timeout, 502 Bad Gateway) or the application process crashed during the \code{EXECUTING} phase. The system does not know if the customer was charged. \textbf{Action:} Enqueues for reconciliation verification; never blindly retried.
+\end{itemize}
+\end{tcolorbox}
+
+\begin{tcolorbox}[successbox={Terminal States}]
+\begin{itemize}
+    \item \state{SUCCEEDED}: The gateway confirmed the charge was successful.
+    \item \state{FAILED}: The gateway definitively rejected the charge (e.g., insufficient funds).
+    \item \state{STOPPED}: The attempt was aborted by the policy engine, or an \code{AUTHORIZED} attempt was orphaned with no evidence of execution.
+\end{itemize}
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- THE OCC IMPLEMENTATION ---
+\subsection{Optimistic Concurrency Implementation}
+
+To enforce these transitions, \filepath{app/services/state\_machine.py} uses Optimistic Concurrency Control (OCC). 
+
+\begin{tcolorbox}[codebox={OCC Database Update (\filepath{app/services/state\_machine.py})}]
+\begin{lstlisting}[language=Python]
+def transition_state(db: Session, attempt_id: str, new_state: str) -> bool:
+    # 1. Read current state and version
+    attempt = db.query(RecoveryAttempt).filter_by(id=attempt_id).first()
+    current_state = attempt.status
+    current_version = attempt.version
+    
+    # 2. Validate against transition graph
+    if new_state not in VALID_TRANSITIONS.get(current_state, []):
+        raise ValueError(f"Invalid transition: {current_state} -> {new_state}")
+        
+    # 3. Optimistic Update
+    updated_rows = db.query(RecoveryAttempt).filter(
+        RecoveryAttempt.id == attempt_id,
+        RecoveryAttempt.version == current_version,  # OCC Lock
+        RecoveryAttempt.status == current_state
+    ).update({
+        "status": new_state,
+        "version": current_version + 1
+    })
+    
+    if updated_rows == 0:
+        raise ValueError("Concurrency collision. State was modified by another thread.")
+\end{lstlisting}
+\end{tcolorbox}
+
+This approach allows high-throughput transitions without holding pessimistic table/row locks for extended periods, failing safely if two workers race to update the same attempt.
+
+\vspace{0.8cm}
+
+% --- BATCH 4.6 AUTHORIZED ORPHAN FIX ---
+\subsection{The Batch 4.6 "Authorized Orphan" Fix}
+
+During the Final Adversarial Audit, a critical flaw was discovered in the state machine: if a worker crashed while an attempt was \code{AUTHORIZED}, it would remain in that state forever, blocking future recoveries. The reconciliation worker explicitly ignored \code{AUTHORIZED} states.
+
+\textbf{The Remediation (Batch 4.6):}
+The state graph was updated (shown in the dashed lines in the diagram above) to allow \code{AUTHORIZED} $\rightarrow$ \code{UNKNOWN} and \code{AUTHORIZED} $\rightarrow$ \code{STOPPED}.
+
+When the reconciliation worker finds an \code{AUTHORIZED} orphan, it applies a forensic evidence check:
+\begin{enumerate}
+    \item Does an \code{IdempotencyRecord} exist for this attempt?
+    \item \textbf{Yes:} The gateway \textit{might} have been called just as the crash occurred. Transition to \code{UNKNOWN} so the worker can query the gateway to verify.
+    \item \textbf{No:} The gateway was definitely not called. Safely transition to \code{STOPPED} to clear the attempt and allow a fresh retry.
+\end{enumerate}

@@ -1,0 +1,100 @@
+% ============================================================
+% SECTION 15 — TESTING STRATEGY
+% ============================================================
+
+\section{Testing Strategy}
+
+\begin{tcolorbox}[summarybox={\iconShield[1.5] Proving the Invariants}]
+\color{textdark}
+For a financial system, unit tests that merely verify "happy path" logic are dangerously insufficient. The testing strategy for RecoverAI V2 evolved heavily during the hardening batches. As of Batch 5.3.1, the repository contains \textbf{138 passing tests} written in Pytest.
+
+The testing suite is designed not just to verify that the code works when everything goes right, but to prove that the system remains safe when everything goes wrong (crashes, races, poison pills).
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- TEST DIRECTORY STRUCTURE ---
+\subsection{Test Suite Organization}
+
+The test suite (\filepath{backend/tests/}) is strictly organized by execution boundary and objective.
+
+\begin{tcolorbox}[featurebox={Test Directories}]
+\begin{itemize}
+    \item \filepath{unit/}: Tests isolated functions (e.g., policy engine bounds, minor units math) without touching the database or external APIs.
+    \item \filepath{integration/}: Tests the boundary between the FastAPI application and the SQLite database. Ensures idempotency records are saved and database constraints are enforced.
+    \item \filepath{api/}: Tests the HTTP boundaries, validating that Pydantic schemas reject bad inputs, rate limiters trigger 429s, and authentication returns 403s.
+    \item \filepath{e2e/}: End-to-End tests that simulate the full lifecycle of a payment failure, orchestration, and gateway resolution.
+    \item \filepath{security/}: The most critical directory. Contains the concurrency and crash-window tests derived from the Adversarial Audits.
+\end{itemize}
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- THE SECURITY TESTS ---
+\subsection{Simulating Catastrophe (The Security Tests)}
+
+The tests inside \filepath{backend/tests/security/} are designed to actively break the system.
+
+\subsubsection{1. Concurrency Racing (\filepath{test\_concurrent\_refund\_race.py})}
+To prove the Batch 4.6 OCC fix worked, this test spins up 10 simultaneous Python threads. All 10 threads attempt to hit the refund API for the exact same transaction ID at the exact same millisecond. 
+\begin{itemize}
+    \item \textbf{Expected Outcome:} Exactly 1 thread succeeds (returns HTTP 200). Exactly 9 threads encounter a collision and fail gracefully (returning HTTP 409 or 400). The mock gateway verifies it was called exactly once.
+\end{itemize}
+
+\vspace{0.4cm}
+
+\subsubsection{2. The Crash Window (\filepath{test\_gateway\_success\_db\_crash\_window.py})}
+This test manually alters the database state to simulate a crash immediately after the gateway returns success.
+\begin{itemize}
+    \item \textbf{Setup:} \code{Transaction.recovery\_status} is set to \code{NOT\_STARTED}, but the child \code{RecoveryAttempt} is set to \code{SUCCEEDED}.
+    \item \textbf{Action:} The test triggers a new recovery request via the API.
+    \item \textbf{Expected Outcome:} \code{ExecutionGuard} deeply inspects the child attempts, detects the orphaned success, and strictly blocks the execution, proving the system survives the crash window.
+\end{itemize}
+
+\vspace{0.4cm}
+
+\subsubsection{3. Webhook Starvation (\filepath{test\_batch531\_webhook\_retry.py})}
+This test verifies the Batch 5.3.1 remediation for poison-pill webhooks.
+\begin{itemize}
+    \item \textbf{Action:} Manually inserts a webhook that continuously throws exceptions during parsing. Runs the reconciliation sweeper 4 times.
+    \item \textbf{Expected Outcome:} On the 4th sweep, the webhook hits the \code{MAX\_WEBHOOK\_RETRIES} limit, is marked \code{FAILED\_PERMANENTLY}, and is ignored by all subsequent sweeps.
+\end{itemize}
+
+\vspace{0.8cm}
+
+% --- PYTEST FIXTURES ---
+\subsection{Pytest Fixtures (\filepath{conftest.py})}
+
+The testing architecture relies heavily on Pytest fixtures to ensure isolation.
+
+\begin{tcolorbox}[codebox={Database Isolation Fixture}]
+\begin{lstlisting}[language=Python]
+@pytest.fixture(scope="function")
+def db_session():
+    # 1. Create a fresh in-memory SQLite database for EVERY test
+    Base.metadata.create_all(bind=engine)
+    session = SessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()
+        # 2. Drop all tables after the test completes
+        Base.metadata.drop_all(bind=engine)
+\end{lstlisting}
+\end{tcolorbox}
+
+This fixture guarantees that state from Test A cannot bleed into Test B, preventing flaky tests.
+
+\vspace{0.8cm}
+
+% --- THE SQLITE BLIND SPOT ---
+\subsection{The SQLite Blind Spot in Testing}
+
+\begin{tcolorbox}[warningbox={\iconWarning[1.3] Test Environment $\neq$ Production Environment}]
+\color{textdark}
+Currently, the entire test suite executes against SQLite (\code{sqlite:///./test.db}). 
+
+As discussed in Section 10, SQLite silently ignores \code{SELECT ... FOR UPDATE} row locks. Therefore, while the tests currently prove that the \textbf{Optimistic} Concurrency Control (OCC) works, the tests \textbf{cannot mathematically prove} that the Pessimistic Concurrency Control (the reconciliation sweepers) works as intended.
+
+\textbf{Requirement for Production:} Before full production launch, the test suite must be pointed at a live PostgreSQL instance.
+\end{tcolorbox}

@@ -1,0 +1,240 @@
+% ============================================================
+% RecoverAI V2 — Shared Preamble
+% ============================================================
+% This file contains all shared package imports, color definitions,
+% TikZ icon commands, and tcolorbox styles used across all sections.
+% Usage: \input{../preamble} at the top of each section file.
+% ============================================================
+
+% --- CORE PACKAGES ---
+\usepackage[a4paper, top=2.5cm, bottom=2.5cm, left=2cm, right=2cm]{geometry}
+\usepackage{fontspec}
+
+\usepackage[english, bidi=basic, provide=*]{babel}
+\babelprovide[import, onchar=ids fonts]{english}
+\babelfont{rm}{Noto Sans}
+
+% --- PACKAGES FOR VISUALS AND LAYOUT ---
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, shadows, calc, fit, backgrounds, decorations.pathreplacing, matrix}
+\usepackage[many, listings]{tcolorbox}
+\usepackage{multicol}
+\usepackage{enumitem}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{listings}
+\usepackage{fancyhdr}
+\usepackage{parskip}
+\usepackage{titlesec}
+
+% Fix lists
+\setlist[itemize]{label=\textcolor{primary}{\textbullet}, leftmargin=*}
+\setlist[enumerate]{leftmargin=*}
+
+% --- COLOR PALETTE ---
+\definecolor{primary}{HTML}{1E3A8A}      % Deep Blue
+\definecolor{secondary}{HTML}{0D9488}    % Teal
+\definecolor{accent}{HTML}{D97706}       % Amber
+\definecolor{bglight}{HTML}{F8FAFC}      % Slate 50
+\definecolor{textdark}{HTML}{0F172A}     % Slate 900
+\definecolor{textmuted}{HTML}{64748B}    % Slate 500
+\definecolor{danger}{HTML}{DC2626}       % Red 600
+\definecolor{warning}{HTML}{EA580C}      % Orange 600
+\definecolor{success}{HTML}{16A34A}      % Green 600
+\definecolor{codebg}{HTML}{1E293B}       % Slate 800
+\definecolor{codetext}{HTML}{E2E8F0}     % Slate 200
+\definecolor{p0color}{HTML}{991B1B}      % Red 800
+\definecolor{p1color}{HTML}{9A3412}      % Orange 800
+\definecolor{p2color}{HTML}{92400E}      % Amber 800
+\definecolor{p3color}{HTML}{1E40AF}      % Blue 800
+
+% --- SEVERITY BADGES ---
+\newcommand{\pzero}{\tikz[baseline=-0.3em]{\node[fill=p0color, text=white, font=\bfseries\scriptsize, rounded corners=2pt, inner sep=2pt]{P0};}}
+\newcommand{\pone}{\tikz[baseline=-0.3em]{\node[fill=p1color, text=white, font=\bfseries\scriptsize, rounded corners=2pt, inner sep=2pt]{P1};}}
+\newcommand{\ptwo}{\tikz[baseline=-0.3em]{\node[fill=p2color, text=white, font=\bfseries\scriptsize, rounded corners=2pt, inner sep=2pt]{P2};}}
+\newcommand{\pthree}{\tikz[baseline=-0.3em]{\node[fill=p3color, text=white, font=\bfseries\scriptsize, rounded corners=2pt, inner sep=2pt]{P3};}}
+
+% --- STATUS BADGES ---
+\newcommand{\statusgreen}[1]{\tikz[baseline=-0.3em]{\node[fill=success, text=white, font=\bfseries\scriptsize, rounded corners=2pt, inner sep=2pt]{#1};}}
+\newcommand{\statusyellow}[1]{\tikz[baseline=-0.3em]{\node[fill=accent, text=white, font=\bfseries\scriptsize, rounded corners=2pt, inner sep=2pt]{#1};}}
+\newcommand{\statusred}[1]{\tikz[baseline=-0.3em]{\node[fill=danger, text=white, font=\bfseries\scriptsize, rounded corners=2pt, inner sep=2pt]{#1};}}
+
+% --- CUSTOM TIKZ ICONS ---
+\newcommand{\iconGear}[1][1.2]{%
+\begin{tikzpicture}[scale=#1, baseline=-0.3em]
+  \fill[secondary] (0,0) circle (0.35);
+  \fill[white] (0,0) circle (0.15);
+  \foreach \i in {0, 45, ..., 315} {
+    \fill[secondary, rotate=\i] (0.3, -0.08) rectangle (0.45, 0.08);
+  }
+\end{tikzpicture}%
+}
+
+\newcommand{\iconChart}[1][1.2]{%
+\begin{tikzpicture}[scale=#1, baseline=-0.3em]
+  \fill[primary] (-0.3,-0.3) rectangle (-0.1, 0.1);
+  \fill[primary] (0,-0.3) rectangle (0.2, 0.4);
+  \fill[accent] (0.3,-0.3) rectangle (0.5, 0.6);
+  \draw[textdark, thick, line cap=round] (-0.4,-0.4) -- (0.6,-0.4);
+  \draw[textdark, thick, line cap=round] (-0.4,-0.4) -- (-0.4,0.7);
+\end{tikzpicture}%
+}
+
+\newcommand{\iconBulb}[1][1.2]{%
+\begin{tikzpicture}[scale=#1, baseline=-0.3em]
+  \fill[accent] (0,0.2) circle (0.25);
+  \fill[accent] (-0.15,0) rectangle (0.15,0.2);
+  \fill[textdark] (-0.1,-0.1) rectangle (0.1,0.05);
+  \fill[textdark] (-0.05,-0.2) rectangle (0.05,-0.1);
+\end{tikzpicture}%
+}
+
+\newcommand{\iconShield}[1][1.2]{%
+\begin{tikzpicture}[scale=#1, baseline=-0.3em]
+  \fill[primary] (0,0.35) -- (0.3,0.15) -- (0.3,-0.2) -- (0,-0.4) -- (-0.3,-0.2) -- (-0.3,0.15) -- cycle;
+  \fill[white] (0,0.15) -- (0.1,0.05) -- (0.1,-0.1) -- (0,-0.2) -- (-0.1,-0.1) -- (-0.1,0.05) -- cycle;
+  \fill[success] (-0.03,-0.05) -- (0.08,-0.15) -- (0.1,-0.13) -- (-0.03,0.03) -- (-0.08,-0.03) -- (-0.06,-0.05) -- cycle;
+\end{tikzpicture}%
+}
+
+\newcommand{\iconWarning}[1][1.2]{%
+\begin{tikzpicture}[scale=#1, baseline=-0.3em]
+  \fill[danger] (-0.3,-0.25) -- (0,0.35) -- (0.3,-0.25) -- cycle;
+  \fill[white] (-0.02,0.15) rectangle (0.02,-0.05);
+  \fill[white] (0,-0.12) circle (0.04);
+\end{tikzpicture}%
+}
+
+\newcommand{\iconDatabase}[1][1.2]{%
+\begin{tikzpicture}[scale=#1, baseline=-0.3em]
+  \fill[primary] (-0.25,-0.3) rectangle (0.25,0.2);
+  \fill[primary] (0,0.2) ellipse (0.25 and 0.1);
+  \fill[bglight] (0,-0.3) ellipse (0.25 and 0.1);
+  \draw[white, thick] (-0.25,0) -- (0.25,0);
+  \draw[white, thick] (-0.25,-0.15) -- (0.25,-0.15);
+\end{tikzpicture}%
+}
+
+\newcommand{\iconFlow}[1][1.2]{%
+\begin{tikzpicture}[scale=#1, baseline=-0.3em]
+  \fill[secondary] (-0.3,0.2) circle (0.1);
+  \fill[primary] (0,0) circle (0.1);
+  \fill[accent] (0.3,-0.2) circle (0.1);
+  \draw[textmuted, thick, -{Stealth}] (-0.2,0.15) -- (-0.08,0.05);
+  \draw[textmuted, thick, -{Stealth}] (0.08,-0.05) -- (0.2,-0.15);
+\end{tikzpicture}%
+}
+
+% --- TCOLORBOX STYLES ---
+\tcbset{
+  summarybox/.style={
+    enhanced, colback=bglight, colframe=primary,
+    boxrule=0pt, leftrule=4pt, arc=2pt,
+    fonttitle=\bfseries\Large, coltitle=primary, colbacktitle=bglight,
+    title=#1, attach title to upper, after title={\\[0.5em]},
+    drop shadow=black!10
+  },
+  featurebox/.style={
+    enhanced, colback=white, colframe=secondary,
+    boxrule=1pt, arc=4pt, fonttitle=\bfseries,
+    title=#1, drop shadow=black!5,
+    toptitle=1.5mm, bottomtitle=1.5mm
+  },
+  dangerbox/.style={
+    enhanced, colback=danger!5, colframe=danger,
+    boxrule=0pt, leftrule=4pt, arc=2pt,
+    fonttitle=\bfseries\color{danger}, coltitle=danger, colbacktitle=danger!5,
+    title=#1, attach title to upper, after title={\\[0.3em]},
+  },
+  warningbox/.style={
+    enhanced, colback=warning!5, colframe=warning,
+    boxrule=0pt, leftrule=4pt, arc=2pt,
+    fonttitle=\bfseries\color{warning}, coltitle=warning, colbacktitle=warning!5,
+    title=#1, attach title to upper, after title={\\[0.3em]},
+  },
+  successbox/.style={
+    enhanced, colback=success!5, colframe=success,
+    boxrule=0pt, leftrule=4pt, arc=2pt,
+    fonttitle=\bfseries\color{success}, coltitle=success, colbacktitle=success!5,
+    title=#1, attach title to upper, after title={\\[0.3em]},
+  },
+  infobox/.style={
+    enhanced, colback=primary!5, colframe=primary,
+    boxrule=0pt, leftrule=4pt, arc=2pt,
+    fonttitle=\bfseries\color{primary}, coltitle=primary, colbacktitle=primary!5,
+    title=#1, attach title to upper, after title={\\[0.3em]},
+  },
+  codebox/.style={
+    enhanced, colback=codebg, colframe=codebg,
+    boxrule=0pt, arc=4pt,
+    fonttitle=\bfseries\color{codetext}\ttfamily\small,
+    coltitle=codetext, colbacktitle=codebg,
+    title=#1,
+    toptitle=2mm, bottomtitle=2mm,
+    top=2mm, bottom=2mm,
+  },
+  batchbox/.style={
+    enhanced, colback=bglight, colframe=primary!60,
+    boxrule=1pt, arc=4pt,
+    fonttitle=\bfseries\large, coltitle=white, colbacktitle=primary!80,
+    title=#1,
+    drop shadow=black!8,
+    toptitle=2mm, bottomtitle=2mm,
+  },
+  findingbox/.style 2 args={
+    enhanced, colback=#2!5, colframe=#2,
+    boxrule=0pt, leftrule=4pt, arc=2pt,
+    fonttitle=\bfseries\color{#2},
+    title=#1, attach title to upper, after title={\\[0.3em]},
+  },
+}
+
+% --- LISTINGS STYLE ---
+\lstset{
+  basicstyle=\ttfamily\small\color{codetext},
+  backgroundcolor=\color{codebg},
+  keywordstyle=\color{secondary}\bfseries,
+  stringstyle=\color{accent},
+  commentstyle=\color{textmuted}\itshape,
+  breaklines=true,
+  frame=none,
+  xleftmargin=4pt,
+  xrightmargin=4pt,
+  aboveskip=0pt,
+  belowskip=0pt,
+}
+
+% --- SECTION FORMATTING ---
+\titleformat{\section}
+  {\color{primary}\LARGE\bfseries}
+  {\thesection}{1em}{}
+  [\vspace{-0.5em}\textcolor{primary!30}{\rule{\textwidth}{1pt}}]
+
+\titleformat{\subsection}
+  {\color{primary!80}\Large\bfseries}
+  {\thesubsection}{1em}{}
+
+\titleformat{\subsubsection}
+  {\color{secondary}\large\bfseries}
+  {\thesubsubsection}{1em}{}
+
+% --- HEADER/FOOTER ---
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\color{textmuted}RecoverAI V2 --- Master Technical Documentation}
+\fancyhead[R]{\small\color{textmuted}\thepage}
+\fancyfoot[C]{\small\color{textmuted}Confidential}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0pt}
+
+% --- UTILITY COMMANDS ---
+\newcommand{\filepath}[1]{\texttt{\color{secondary}#1}}
+\newcommand{\code}[1]{\texttt{\color{primary}#1}}
+\newcommand{\state}[1]{\tikz[baseline=-0.3em]{\node[fill=primary!10, text=primary, font=\bfseries\footnotesize, rounded corners=2pt, inner sep=2pt]{#1};}}
+\newcommand{\refundstate}[1]{\tikz[baseline=-0.3em]{\node[fill=secondary!10, text=secondary, font=\bfseries\footnotesize, rounded corners=2pt, inner sep=2pt]{#1};}}
+\newcommand{\webhookstate}[1]{\tikz[baseline=-0.3em]{\node[fill=accent!10, text=accent, font=\bfseries\footnotesize, rounded corners=2pt, inner sep=2pt]{#1};}}
+
+% Hyperref must be the last package
+\usepackage[colorlinks=true, linkcolor=primary, urlcolor=secondary]{hyperref}

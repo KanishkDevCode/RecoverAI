@@ -1,0 +1,158 @@
+% ============================================================
+% SECTION 4 — BATCH HISTORY
+% ============================================================
+
+\section{Batch History \& System Evolution}
+
+\begin{tcolorbox}[summarybox={\iconGear[1.5] The Hardening Roadmap}]
+\color{textdark}
+Recognizing the structural weaknesses of the initial monolithic design, the engineering team froze feature development (ML/LLM capabilities) and embarked on a rigorous, phased hardening process.
+
+This process was organized into \textbf{Batches}. Each batch focused on a specific domain of reliability, security, or concurrency, ensuring the system could mathematically guarantee financial safety before scaling.
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- THE BATCH TIMELINE ---
+\subsection{Evolution Timeline}
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=1.2cm,
+    timeline/.style={draw=primary, thick, -{Stealth}},
+    batchnode/.style={circle, draw=primary, thick, fill=bglight, minimum size=1.2cm, font=\bfseries\color{primary}},
+    batchlabel/.style={rectangle, draw=secondary!50, fill=white, minimum width=4cm, rounded corners=3pt, font=\small, drop shadow=black!5},
+]
+
+    % The main timeline spine
+    \draw[timeline] (0, 0) -- (0, -10.5);
+    
+    % Batch 3
+    \node[batchnode] (b3) at (0, -1) {B3};
+    \node[batchlabel, right=0.5cm of b3, align=left] {
+        \textbf{Security \& API Hardening}\\
+        \textcolor{textmuted}{\scriptsize Env vars, CORS, Auth, Rate Limits}\\
+        \textcolor{textmuted}{\scriptsize Request Tracing Middleware}
+    };
+    
+    % Batch 4
+    \node[batchnode] (b4) at (0, -3.5) {B4};
+    \node[batchlabel, left=0.5cm of b4, align=right] {
+        \textbf{Gateway Abstraction}\\
+        \textcolor{textmuted}{\scriptsize Execution Guard, Refund Service}\\
+        \textcolor{textmuted}{\scriptsize Webhook auth, Idempotency DB}
+    };
+    
+    % Final Audit
+    \node[circle, draw=danger, fill=danger!10, thick, minimum size=0.8cm] (audit) at (0, -5.5) {};
+    \node[text=danger, font=\bfseries] at (audit) {!};
+    \node[rectangle, draw=danger!50, fill=danger!5, right=0.5cm of audit, rounded corners=3pt, font=\small, drop shadow=black!5, align=left] {
+        \textbf{Final Adversarial Audit}\\
+        \textcolor{danger}{\scriptsize Uncovered P0 concurrency flaws}
+    };
+    
+    % Batch 4.6
+    \node[batchnode] (b46) at (0, -7.5) {B4.6};
+    \node[batchlabel, left=0.5cm of b46, align=right] {
+        \textbf{Financial Remediation}\\
+        \textcolor{textmuted}{\scriptsize Row-level locking for refunds}\\
+        \textcolor{textmuted}{\scriptsize Crash-window OCC fixes}
+    };
+    
+    % Batch 5+
+    \node[batchnode] (b5) at (0, -9.5) {B5+};
+    \node[batchlabel, right=0.5cm of b5, align=left] {
+        \textbf{Durability \& Scaling}\\
+        \textcolor{textmuted}{\scriptsize PostgreSQL, Celery, Redis}\\
+        \textcolor{textmuted}{\scriptsize Bounded webhook retries (5.3.1)}
+    };
+
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.8cm}
+
+% --- BATCH 3 ---
+\subsection{Batch 3: Security \& API Hardening}
+
+The first hardening phase focused on securing the perimeter of the application.
+
+\begin{tcolorbox}[batchbox={Key Implementations in Batch 3}]
+\begin{itemize}
+    \item \textbf{Configuration Boundary:} Replaced all hardcoded secrets with \code{python-dotenv}. The application now strictly fails to boot in production if \code{MERCHANT\_API\_KEY} or \code{WEBHOOK\_SECRET} are missing.
+    \item \textbf{Rate Limiting:} Implemented an in-memory token bucket rate limiter keyed by \code{IP + API\_Key}. Crucially, this was placed \textit{before} idempotency checks so that rate-limit rejections do not falsely consume idempotency tokens.
+    \item \textbf{Router Modularization:} Split the monolithic router into domain-specific micro-routers (\filepath{payments.py}, \filepath{refunds.py}, \filepath{webhooks.py}, etc.) while maintaining the exact HTTP contract.
+    \item \textbf{Request Tracing:} Added \code{RequestIDMiddleware} using \code{contextvars} to inject \code{X-Request-ID} into all logs, ensuring traceability across asynchronous boundaries.
+\end{itemize}
+\end{tcolorbox}
+
+\vspace{0.5cm}
+
+% --- BATCH 4 ---
+\subsection{Batch 4: Gateway Abstraction \& Refund Reliability}
+
+Batch 4 addressed the core business logic, abstracting the external gateway and establishing the initial financial guardrails.
+
+\begin{tcolorbox}[batchbox={Key Implementations in Batch 4}]
+\begin{itemize}
+    \item \textbf{Gateway Abstraction:} Defined \code{GatewayInterface} (\filepath{gateways/base.py}). Consumers no longer instantiate Mock services directly; they use dependency injection via \code{get\_gateway()}.
+    \item \textbf{Execution Guard:} Introduced \filepath{execution\_guard.py} as the sole chokepoint allowed to call the gateway. It validates state transitions before permitting execution.
+    \item \textbf{Refund Service:} Extracted refund logic into \filepath{refund\_service.py}, enforcing that only \code{SUCCEEDED} transactions can be refunded.
+    \item \textbf{Webhook Integrity:} Added \code{WebhookEvent} model and enforced HMAC-SHA256 signature validation on incoming payloads to prevent forged gateway callbacks.
+\end{itemize}
+\end{tcolorbox}
+
+\vspace{0.5cm}
+
+% --- THE AUDIT ---
+\subsection{The Final Adversarial Audit (Intervention)}
+
+Following Batch 4, the engineering team conducted a simulated adversarial audit. The goal was to prove the system's financial safety guarantees under extreme concurrency and failure scenarios.
+
+\begin{tcolorbox}[dangerbox={Critical Vulnerabilities Discovered (P0)}]
+The audit revealed that while the perimeter was secure, the core state machine was vulnerable to race conditions:
+\begin{enumerate}
+    \item \textbf{Concurrent Refund Race:} \code{RefundService} checked \code{refund\_status} without a database lock. Two concurrent requests with different idempotency keys could both read the status as "eligible" and issue double refunds.
+    \item \textbf{Gateway Success + DB Crash:} If the application crashed immediately after the gateway returned success, but before updating \code{Transaction.recovery\_status}, the transaction appeared \code{NOT\_STARTED} and would be erroneously retried upon reboot.
+\end{enumerate}
+\end{tcolorbox}
+
+\vspace{0.5cm}
+
+% --- BATCH 4.6 ---
+\subsection{Batch 4.6: Financial Safety Remediation}
+
+Batch 4.6 was an emergency remediation phase explicitly dedicated to fixing the P0 findings from the audit using Optimistic Concurrency Control (OCC) and architectural strictness.
+
+\begin{tcolorbox}[batchbox={Key Implementations in Batch 4.6}]
+\begin{itemize}
+    \item \textbf{Refund OCC Validation:} Altered the refund update query to explicitly include the expected prior state in the \code{WHERE} clause (\code{UPDATE ... WHERE refund\_status = 'NONE'}). If 0 rows are updated, a concurrent race is detected and the request is aborted.
+    \item \textbf{ExecutionGuard Deep Inspection:} Fixed the crash window by forcing \code{ExecutionGuard} to inspect \textbf{all} \code{RecoveryAttempt} records for a transaction. If any prior attempt exists in a terminal or active state, execution is blocked, regardless of the parent transaction's status.
+    \item \textbf{IntegrityError Rollbacks:} Fixed an issue where duplicate transaction ID inserts were swallowed, properly returning HTTP 409 Conflict.
+    \item \textbf{Authorized Orphans:} Updated the reconciliation worker to rescue attempts stuck in the \code{AUTHORIZED} state by checking the \code{IdempotencyRecord} for evidence of gateway execution.
+\end{itemize}
+\end{tcolorbox}
+
+\vspace{0.5cm}
+
+% --- BATCH 5 SERIES ---
+\subsection{Batch 5: Durability \& Scaling (In Progress)}
+
+With financial safety mathematically proven by Batch 4.6, Batch 5 shifted focus to durable job architecture and scalability, replacing in-memory development tools with production-grade infrastructure.
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=0.5cm,
+    step/.style={rectangle, draw=secondary, thick, fill=white, minimum width=12cm, minimum height=0.8cm, rounded corners=2pt, font=\small, text=textdark, align=left},
+]
+    \node[step] (b5) {\textbf{Batch 5.0:} Target state definition (PostgreSQL, Celery, Redis)};
+    \node[step, below=of b5] (b52) {\textbf{Batch 5.2:} Replaced FastAPI \code{BackgroundTasks} with Celery + Redis for durable orchestrations.};
+    \node[step, below=of b52] (b53) {\textbf{Batch 5.3:} Migrated webhook processing to durable Celery background tasks.};
+    \node[step, below=of b53] (b531) {\textbf{Batch 5.3.1 (Current):} Implemented bounded webhook retry limits to prevent poison-pill queue starvation.};
+\end{tikzpicture}
+\end{center}
+
+\begin{tcolorbox}[infobox={State of the System}]
+\color{textdark}
+As of the completion of Batch 5.3.1, the application logic is fully hardened. The only remaining steps for full production readiness involve environment orchestration (Docker) and swapping the local SQLite database connection string for a live PostgreSQL instance.
+\end{tcolorbox}

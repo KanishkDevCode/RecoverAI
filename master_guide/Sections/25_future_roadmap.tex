@@ -1,0 +1,89 @@
+% ============================================================
+% SECTION 25 — FUTURE ROADMAP
+% ============================================================
+
+\section{Future Roadmap}
+
+\begin{tcolorbox}[summarybox={\iconBulb[1.5] The Path to Production}]
+\color{textdark}
+The hardening batches have transformed RecoverAI V2 from a fragile prototype into a mathematically safe, distributed financial engine. The core invariant—\textit{At-Most-Once execution}—is proven.
+
+However, the system is not yet ready to be deployed to external customers. This final section outlines the mandatory engineering milestones remaining before General Availability (GA).
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- MILESTONE 1: DOCKERIZATION ---
+\subsection{Milestone 1: Container Orchestration (Docker)}
+
+Currently, the system is run via a series of manual terminal commands (Redis, Celery workers, Celery Beat, FastAPI, frontend). This is operationally fragile and makes CI/CD impossible.
+
+\begin{tcolorbox}[featurebox={The Dockerization Requirement}]
+\textbf{Goal:} A unified \filepath{docker-compose.yml} (and subsequent Kubernetes Helm charts) that orchestrates the entire stack.
+\begin{itemize}
+    \item \textbf{Container 1:} FastAPI Application (Gunicorn/Uvicorn).
+    \item \textbf{Container 2:} Celery High-Priority Worker.
+    \item \textbf{Container 3:} Celery Reconciliation Worker.
+    \item \textbf{Container 4:} Celery Beat Scheduler.
+    \item \textbf{Container 5:} Redis Broker.
+    \item \textbf{Container 6:} PostgreSQL Database.
+\end{itemize}
+\end{tcolorbox}
+
+By containerizing the workers separately, the infrastructure can use Kubernetes HPA to scale the FastAPI web pods independently from the Celery orchestration workers based on queue depth.
+
+\vspace{0.8cm}
+
+% --- MILESTONE 2: POSTGRESQL MIGRATION ---
+\subsection{Milestone 2: The PostgreSQL Migration}
+
+As documented throughout this guide, the system currently runs against SQLite (\code{sqlite:///./recoverai.db}). While safe due to the aggressive Optimistic Concurrency Control (OCC) mitigations implemented in Batch 4.6, SQLite's global write lock remains a severe bottleneck for horizontal scaling.
+
+\begin{tcolorbox}[warningbox={Abandoning SQLite}]
+Before the system handles real financial traffic, the SQLite connection string must be replaced with a live PostgreSQL instance.
+\begin{enumerate}
+    \item \textbf{Row-Level Locks:} PostgreSQL will fully activate the \code{with\_for\_update()} pessimistic locks used by the reconciliation sweepers, preventing CPU waste when multiple sweepers conflict.
+    \item \textbf{PgBouncer:} A connection pooler must be placed between the application and PostgreSQL to handle the high volume of connections from the distributed Celery workers.
+\end{enumerate}
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- MILESTONE 3: MULTI-TENANCY ---
+\subsection{Milestone 3: Multi-Tenancy \& Gateway Expansion}
+
+Currently, the system assumes it is operating on behalf of a single merchant (using a single global \code{MERCHANT\_API\_KEY} and \code{WEBHOOK\_SECRET}). To become a SaaS product, it must support Multi-Tenancy.
+
+\subsubsection{Data Isolation}
+Every core model (\code{Transaction}, \code{RecoveryAttempt}, \code{WebhookEvent}) must be updated via Alembic to include a \code{merchant\_id} foreign key. All API queries and Celery sweeps must append \code{WHERE merchant\_id = X} to guarantee data isolation between clients.
+
+\subsubsection{Gateway Expansion}
+Once multi-tenancy is established, the \code{GatewayInterface} (Section 22) will be utilized to support real payment providers.
+\begin{itemize}
+    \item \textbf{StripeService:} Implementing the Stripe API for recoveries and refunds, mapping Stripe's asynchronous \code{charge.succeeded} and \code{charge.refunded} webhooks to the internal state machine.
+    \item \textbf{AdyenService / BraintreeService:} Further expanding the adapter pattern to support enterprise clients.
+\end{itemize}
+
+\vspace{0.8cm}
+
+% --- MILESTONE 4: THE MERCHANT DASHBOARD ---
+\subsection{Milestone 4: The Frontend Merchant Dashboard}
+
+While the backend is functionally complete, the merchant-facing UI (the React/Vite application in \filepath{frontend/}) is currently a minimal prototype used to trigger API calls for testing.
+
+\begin{tcolorbox}[featurebox={UI Requirements}]
+\begin{itemize}
+    \item \textbf{Audit Log Viewer:} Merchants need a cryptographic-like view of the \code{AuditLog} table to see exactly \textit{why} the LLM and Policy Engine chose to recover or abandon a specific transaction.
+    \item \textbf{Escalation Resolution:} A dedicated view for transactions that hit the \code{CREATE\_ESCALATION} status (due to high amount thresholds or risk blocklists), allowing human agents to review and manually override the AI.
+    \item \textbf{Settings \& Policies:} A UI layer that allows merchants to dynamically configure their own \code{MAX\_RETRIES} and \code{MAX\_AUTO\_ACTION\_AMOUNT} thresholds, rather than relying on global environment variables.
+\end{itemize}
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- CONCLUSION ---
+\subsection{Conclusion}
+
+RecoverAI V2 began as an experiment to apply Large Language Models to financial recovery operations. The journey from a fragile, in-process monolith to a hardened, distributed, financially safe architecture was driven by a commitment to adversarial auditing and mathematical invariants.
+
+By strictly sandboxing the non-deterministic LLM behind a deterministic Policy Engine, and by shielding the payment gateway behind the \code{ExecutionGuard} and OCC database locks, the system has achieved the architectural maturity required to safely automate financial recovery at scale.

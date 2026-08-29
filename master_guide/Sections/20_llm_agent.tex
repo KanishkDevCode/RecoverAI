@@ -1,0 +1,133 @@
+% ============================================================
+% SECTION 20 — THE LLM DIAGNOSIS AGENT
+% ============================================================
+
+\section{The LLM Diagnosis Agent}
+
+\begin{tcolorbox}[summarybox={\iconFlow[1.5] Contextualizing the Failure}]
+\color{textdark}
+If the Machine Learning model provides the \textit{probability} of recovery, the Large Language Model (LLM) provides the \textit{strategy}. 
+
+The \code{DiagnosisAgent} (\filepath{app/agents/diagnosis\_agent.py}) acts as the cognitive engine of the system. It ingests the raw transaction metadata, the ML score, and historical context to recommend a specific recovery action (e.g., \code{RETRY\_PAYMENT}, \code{SEND\_EMAIL}, \code{STOP\_AUTOMATION}).
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- THE PROVIDER FACTORY ---
+\subsection{The LLM Provider Factory}
+
+RecoverAI V2 is entirely agnostic to the underlying LLM provider. The system uses a Factory Pattern to dynamically load the correct LLM interface based on the \code{LLM\_PROVIDER} environment variable.
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=1cm and 1.5cm,
+    factory/.style={rectangle, draw=primary, thick, fill=primary!10, minimum width=3.5cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries, align=center},
+    provider/.style={rectangle, draw=textdark, thick, fill=white, minimum width=2.5cm, minimum height=0.8cm, rounded corners=4pt, font=\scriptsize\ttfamily},
+    arrow/.style={-{Stealth[scale=1.1]}, thick, draw=textdark},
+    dashed_arrow/.style={-{Stealth[scale=1.1]}, thick, draw=textmuted, dashed}
+]
+
+    \node[factory] (factory) {LLM Provider Factory\\(\code{get\_llm\_provider()})};
+    
+    \node[provider, above right=0.2cm and 2cm of factory] (openai) {OpenAIProvider};
+    \node[provider, right=2cm of factory] (ollama) {OllamaProvider};
+    \node[provider, below right=0.2cm and 2cm of factory] (mock) {MockProvider};
+    
+    \draw[dashed_arrow] (factory) -- node[above, font=\tiny, sloped] {If \code{provider=openai}} (openai.west);
+    \draw[dashed_arrow] (factory) -- node[above, font=\tiny, sloped] {If \code{provider=ollama}} (ollama.west);
+    \draw[arrow] (factory) -- node[below, font=\tiny, sloped] {If \code{provider=mock} (Default)} (mock.west);
+
+\end{tikzpicture}
+\end{center}
+
+\begin{tcolorbox}[featurebox={Supported Providers}]
+\begin{itemize}
+    \item \code{mock}: The default for unit testing and local development without API keys. It returns deterministic JSON responses based on the transaction amount.
+    \item \code{ollama}: Connects to a local Ollama daemon. Ideal for privacy-compliant deployments where transaction metadata cannot leave the VPC.
+    \item \code{openai}: Uses \code{gpt-4o-mini} (or similar) for high-accuracy reasoning, utilizing OpenAI's \code{response\_format=\{ "type": "json\_object" \}}.
+\end{itemize}
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- PROMPT ARCHITECTURE ---
+\subsection{Prompt Architecture \& Sandboxing}
+
+The LLM is prompted via a strict template. As detailed in the Security Evolution section (Section 5), the prompt heavily isolates the untrusted user data.
+
+\begin{tcolorbox}[codebox={The System Prompt}]
+\begin{lstlisting}[language=Python]
+SYSTEM_PROMPT = """
+You are a financial recovery diagnosis agent. 
+Your job is to analyze a failed transaction and recommend an action.
+
+You MUST respond in valid JSON format matching this schema:
+{
+    "recommended_action": "RETRY_PAYMENT" | "SEND_EMAIL" | "STOP_AUTOMATION",
+    "reasoning": "string explanation",
+    "confidence_score": float between 0.0 and 1.0
+}
+"""
+\end{lstlisting}
+\end{tcolorbox}
+
+The user prompt injects the variables:
+\begin{enumerate}
+    \item \textbf{Transaction JSON:} The raw metadata.
+    \item \textbf{ML Score:} \code{f"Machine Learning Recovery Probability: {ml\_score}"}.
+    \item \textbf{Attempt Count:} How many times this has already failed.
+\end{enumerate}
+
+\vspace{0.8cm}
+
+% --- STRUCTURED OUTPUT ENFORCEMENT ---
+\subsection{Structured Output Enforcement (Pydantic)}
+
+LLMs are prone to hallucinating formats (e.g., returning markdown blocks like \code{```json ... ```} instead of raw JSON). The \code{DiagnosisAgent} enforces strict structural compliance using Pydantic.
+
+\begin{tcolorbox}[codebox={Parsing and Validation}]
+\begin{lstlisting}[language=Python]
+class DiagnosisResult(BaseModel):
+    recommended_action: str
+    reasoning: str
+    confidence_score: float
+    
+    @validator("recommended_action")
+    def validate_action(cls, v):
+        allowed = ["RETRY_PAYMENT", "SEND_EMAIL", "STOP_AUTOMATION"]
+        if v not in allowed:
+            return "CREATE_ESCALATION" # Safe fallback
+        return v
+
+def diagnose_failure(...) -> DiagnosisResult:
+    # 1. Call LLM
+    raw_response = provider.generate(...)
+    
+    # 2. Strip Markdown (if present)
+    cleaned_json = strip_markdown_blocks(raw_response)
+    
+    # 3. Pydantic Validation
+    try:
+        return DiagnosisResult.parse_raw(cleaned_json)
+    except ValidationError:
+        # Fallback if the LLM completely hallucinates the schema
+        return DiagnosisResult(
+            recommended_action="CREATE_ESCALATION",
+            reasoning="LLM parsing failed.",
+            confidence_score=0.0
+        )
+\end{lstlisting}
+\end{tcolorbox}
+
+This layer ensures that the downstream Policy Engine \textit{always} receives a valid, typed Python object, even if the LLM output is entirely malformed.
+
+\vspace{0.8cm}
+
+% --- ARCHITECTURAL WARNING ---
+\subsection{Architectural Warning: Hallucinations}
+
+\begin{tcolorbox}[warningbox={LLM Recommendations are NOT Commands}]
+The output of the \code{DiagnosisResult} is strictly a \textbf{recommendation}. Even if the LLM outputs \code{confidence\_score: 0.99} and \code{recommended\_action: "RETRY\_PAYMENT"}, it has \textit{zero authority} to execute the payment gateway. 
+
+The LLM is completely blind to the merchant's business rules, retry budgets, and risk thresholds. Its sole purpose is to provide intelligent text parsing and reasoning to the true decision maker: \textbf{The Policy Engine}.
+\end{tcolorbox}

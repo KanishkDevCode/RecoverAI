@@ -1,0 +1,93 @@
+% ============================================================
+% SECTION 19 — THE ML MODEL (SCIKIT-LEARN)
+% ============================================================
+
+\section{The Machine Learning Model}
+
+\begin{tcolorbox}[summarybox={\iconBulb[1.5] Lightweight Risk Scoring}]
+\color{textdark}
+Before the LLM is invoked, RecoverAI V2 runs a traditional, deterministic Machine Learning model to evaluate the baseline risk of the transaction. The goal of this model is not to make the final decision, but to provide a fast, mathematically grounded \textbf{Recovery Probability Score} that gives the LLM context regarding historical success rates.
+
+The model is built using \code{scikit-learn} and is trained on historical (or synthetic) transaction data.
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- THE MODEL PIPELINE ---
+\subsection{The Model Pipeline}
+
+The ML pipeline is defined in \filepath{app/ml/model.py} and consists of a feature extractor, a standard scaler, and a Random Forest Classifier.
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=1.5cm,
+    data/.style={cylinder, draw=primary, thick, fill=primary!10, shape border rotate=90, aspect=0.25, minimum width=2cm, minimum height=1.2cm, font=\small\bfseries, align=center},
+    step/.style={rectangle, draw=secondary, thick, fill=bglight, minimum width=2.5cm, minimum height=0.8cm, rounded corners=4pt, font=\small\bfseries, drop shadow=black!5, align=center},
+    model/.style={rectangle, draw=accent, thick, fill=accent!10, minimum width=3cm, minimum height=1.2cm, rounded corners=4pt, font=\small\bfseries, drop shadow=black!5, align=center},
+    arrow/.style={-{Stealth[scale=1.1]}, thick, draw=textdark}
+]
+
+    \node[data] (db) {Transaction\\JSON};
+    \node[step, right=of db] (feat) {Feature\\Extractor};
+    \node[step, right=of feat] (scaler) {Standard\\Scaler};
+    \node[model, right=of scaler] (rf) {RandomForest\\Classifier};
+    
+    \node[rectangle, draw=success, thick, fill=success!10, right=1.5cm of rf, minimum width=2cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries] (score) {Score: 0.85};
+
+    \draw[arrow] (db) -- (feat);
+    \draw[arrow] (feat) -- (scaler);
+    \draw[arrow] (scaler) -- (rf);
+    \draw[arrow] (rf) -- (score);
+
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.5cm}
+
+% --- FEATURE ENGINEERING ---
+\subsection{Feature Engineering}
+
+The \code{RecoveryPredictor} class extracts specific numerical features from the raw transaction dictionary. It intentionally ignores PII (Personally Identifiable Information) like names and emails to prevent model bias and simplify compliance.
+
+\begin{tcolorbox}[featurebox={Engineered Features}]
+\begin{enumerate}
+    \item \code{amount}: The transaction amount in minor units. Historically, lower amounts have higher recovery rates as they are less likely to hit credit limits.
+    \item \code{time\_since\_failure}: Calculated in hours. The model historically shows a sharp drop-off in recovery probability if a retry is attempted more than 72 hours after the initial failure.
+    \item \code{failure\_code\_numeric}: The string-based failure reason (e.g., \code{insufficient\_funds}, \code{fraud\_suspected}) is mapped to a numeric severity weight.
+\end{enumerate}
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- TRAINING AND PERSISTENCE ---
+\subsection{Training and Persistence}
+
+\subsubsection{Synthetic Training Data}
+For development and demonstration purposes, the system includes a \code{train\_model()} method that generates synthetic data. It explicitly encodes patterns:
+\begin{itemize}
+    \item Hard declines (\code{stolen\_card}, \code{fraud}) are forced to target \code{0} (will not recover).
+    \item Soft declines (\code{insufficient\_funds}) with low amounts are weighted toward \code{1} (will recover).
+\end{itemize}
+
+\subsubsection{Joblib Persistence}
+Once trained, the Random Forest model and the Scaler are serialized to disk using \code{joblib} (saved to \filepath{app/ml/recovery\_model.joblib}). 
+
+\begin{tcolorbox}[codebox={Model Prediction Execution}]
+\begin{lstlisting}[language=Python]
+def predict_recovery_probability(self, transaction: dict) -> float:
+    # 1. Ensure model is loaded into memory
+    self._ensure_model_loaded()
+    
+    # 2. Extract features exactly as done during training
+    features = self._extract_features(transaction)
+    
+    # 3. Scale features
+    X = self.scaler.transform([features])
+    
+    # 4. Predict probability of class 1 (Recovery Success)
+    probabilities = self.model.predict_proba(X)
+    return float(probabilities[0][1])
+\end{lstlisting}
+\end{tcolorbox}
+
+When the \code{process\_orchestrator} Celery task runs, it instantiates the predictor, loads the \code{.joblib} file into memory, and generates this score. This float (e.g., \code{0.78}) is then passed to the LLM Agent as the \code{ml\_recovery\_score} variable.

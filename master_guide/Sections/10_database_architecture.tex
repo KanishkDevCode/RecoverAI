@@ -1,0 +1,147 @@
+% ============================================================
+% SECTION 10 — DATABASE ARCHITECTURE
+% ============================================================
+
+\section{Database Architecture}
+
+\begin{tcolorbox}[summarybox={\iconDatabase[1.5] The Indisputable Source of Truth}]
+\color{textdark}
+In RecoverAI V2, the relational database (PostgreSQL) is the \textbf{exclusive source of truth}. While Redis is used for ephemeral task queuing, any data not durably committed to PostgreSQL does not exist in the financial reality of the system.
+
+The schema is defined in \filepath{app/models/db\_models.py} using SQLAlchemy 2.0. It is designed to be fully normalized and highly resilient to concurrent mutations.
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- ENTITY RELATIONSHIP DIAGRAM ---
+\subsection{Entity Relationship Diagram}
+
+The following diagram illustrates the core models and their foreign key relationships.
+
+\vspace{0.5cm}
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=1cm and 2cm,
+    entity/.style={rectangle, draw=primary, thick, fill=bglight, minimum width=3.5cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries, drop shadow=black!5, align=center},
+    attribute/.style={font=\scriptsize, align=left, text=textdark},
+    arrow/.style={-{Stealth[scale=1.1]}, thick, draw=textdark},
+    rel/.style={font=\scriptsize\itshape, text=textmuted}
+]
+
+    % Core Entities
+    \node[entity] (txn) {Transaction};
+    \node[attribute, below=0cm of txn] {
+        \code{id} (PK) \\
+        \code{amount} (Integer) \\
+        \code{status} \\
+        \code{recovery\_status} \\
+        \code{refund\_status}
+    };
+    
+    \node[entity, right=3cm of txn] (attempt) {RecoveryAttempt};
+    \node[attribute, below=0cm of attempt] {
+        \code{id} (PK) \\
+        \code{transaction\_id} (FK) \\
+        \code{status} \\
+        \code{version} (Integer, OCC)
+    };
+    
+    \node[entity, below=3.5cm of txn] (audit) {AuditLog};
+    \node[attribute, below=0cm of audit] {
+        \code{id} (PK) \\
+        \code{transaction\_id} (FK) \\
+        \code{action} \\
+        \code{details} (JSON)
+    };
+    
+    \node[entity, below=3.5cm of attempt] (webhook) {WebhookEvent};
+    \node[attribute, below=0cm of webhook] {
+        \code{id} (PK) \\
+        \code{status} \\
+        \code{retry\_count} \\
+        \code{last\_attempt\_at}
+    };
+    
+    \node[entity, right=2.5cm of attempt] (idemp) {IdempotencyRecord};
+    \node[attribute, below=0cm of idemp] {
+        \code{key} (PK) \\
+        \code{request\_hash} \\
+        \code{status}
+    };
+
+    % Relationships
+    \draw[arrow] (txn.east) -- node[above, rel] {1 : N} (attempt.west);
+    \draw[arrow] (txn.south) -- node[left, rel] {1 : N} (audit.north);
+
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.8cm}
+
+% --- CORE ENTITIES ---
+\subsection{Core Entity Definitions}
+
+\subsubsection{1. \code{Transaction}}
+The root of the data model. Represents the original payment attempt made by the customer.
+\begin{itemize}
+    \item \textbf{Financial Math:} Amounts are strictly stored as \textbf{Minor Units} (integers). For example, \$50.00 is stored as \code{5000} to prevent floating-point rounding errors during financial execution.
+    \item \textbf{Dual Statuses:} \code{recovery\_status} tracks the aggregate state of the recovery process (\code{NOT\_STARTED}, \code{EXECUTING}, \code{SUCCEEDED}), while \code{refund\_status} independently tracks refund actions.
+\end{itemize}
+
+\vspace{0.4cm}
+
+\subsubsection{2. \code{RecoveryAttempt}}
+A child record representing a single, specific effort to recover a transaction.
+\begin{itemize}
+    \item \textbf{1:N Relationship:} A single \code{Transaction} can have multiple \code{RecoveryAttempts} if the policy engine permits multiple retries.
+    \item \textbf{Optimistic Lock:} Contains the \code{version} integer field. Every time the attempt transitions state, this version is atomically incremented.
+\end{itemize}
+
+\vspace{0.4cm}
+
+\subsubsection{3. \code{AuditLog}}
+An append-only log providing a cryptographic-like history of what the system did and why.
+\begin{itemize}
+    \item \textbf{Compliance:} Records every LLM diagnosis, policy decision, and gateway execution.
+    \item \textbf{Immutability:} By design, the application never updates or deletes an \code{AuditLog} row once inserted.
+\end{itemize}
+
+\vspace{0.4cm}
+
+\subsubsection{4. \code{IdempotencyRecord}}
+The shield for the API layer. 
+\begin{itemize}
+    \item \textbf{Scoping:} Keys are generated dynamically based on the merchant's hashed API key combined with the client-provided header (\code{pay\_[api\_hash]\_[idemp\_key]}).
+    \item \textbf{Hash Validation:} Stores a \code{request\_hash} of the payload. If a client reuses an idempotency key but alters the payload (e.g., changes the amount from \$50 to \$100), the system rejects it as a collision.
+\end{itemize}
+
+\vspace{0.4cm}
+
+\subsubsection{5. \code{WebhookEvent}}
+A durable inbox for gateway callbacks.
+\begin{itemize}
+    \item \textbf{Ingestion Separation:} Webhook payloads are inserted into this table in a raw, unparsed format before being picked up by Celery. This allows the HTTP listener to return \code{200 OK} instantly.
+    \item \textbf{Batch 5.3.1 Retries:} Contains \code{retry\_count} and \code{last\_attempt\_at} to prevent infinite loops when parsing fails permanently.
+\end{itemize}
+
+\vspace{0.8cm}
+
+% --- SQLITE VS POSTGRESQL ---
+\subsection{The SQLite vs. PostgreSQL Divide}
+
+\begin{tcolorbox}[warningbox={The Danger of SQLite in Financial Systems}]
+RecoverAI V2 was built and tested primarily using SQLite. While SQLite is fantastic for local development, it possesses a structural limitation that is catastrophic for financial queues: \textbf{it does not support row-level locking}.
+\end{tcolorbox}
+
+When the application executes \code{db.query(Model).with\_for\_update()}, SQLAlchemy passes the \code{SELECT ... FOR UPDATE} command to the database engine.
+\begin{itemize}
+    \item \textbf{PostgreSQL:} Locks the specific row. If Worker 2 tries to read it, it is forced to wait until Worker 1 commits.
+    \item \textbf{SQLite:} Silently ignores the \code{FOR UPDATE} clause. Worker 2 reads the row simultaneously.
+\end{itemize}
+
+\textbf{Mitigation applied in V2:} Because SQLite ignored pessimistic locks, the engineering team was forced to implement \textbf{Optimistic Concurrency Control} (\code{UPDATE ... WHERE status = 'X' AND version = 'Y'}) for all state transitions (Batch 4.6). OCC relies on basic atomic writes, which both SQLite and PostgreSQL support, ensuring the system is safe regardless of the underlying engine.
+
+\begin{tcolorbox}[successbox={Production Readiness}]
+Despite the OCC mitigations making the code safe on SQLite, the system is explicitly designed to be deployed against \textbf{PostgreSQL} in production to leverage true pessimistic locks in the reconciliation sweepers (preventing CPU waste when multiple sweepers conflict).
+\end{tcolorbox}

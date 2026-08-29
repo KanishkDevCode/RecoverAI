@@ -1,0 +1,125 @@
+% ============================================================
+% SECTION 18 — REQUEST FLOWS
+% ============================================================
+
+\section{Request Flows}
+
+\begin{tcolorbox}[summarybox={\iconFlow[1.5] Step-by-Step Execution Lifecycle}]
+\color{textdark}
+To understand how the decoupled layers (FastAPI, Redis, Celery, PostgreSQL) interact in practice, it is necessary to trace the exact sequence of events for the system's core operations.
+
+This section maps the two most critical paths: initiating a payment recovery and initiating a refund.
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- THE PAYMENT RECOVERY FLOW ---
+\subsection{Flow 1: Initiating a Payment Recovery}
+
+This is the primary business function of RecoverAI V2: attempting to salvage a failed transaction. Note how the HTTP request terminates long before the actual financial execution occurs.
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=0.8cm and 1.8cm,
+    actor/.style={rectangle, draw=primary, thick, fill=bglight, minimum width=2.5cm, minimum height=0.8cm, rounded corners=4pt, font=\small\bfseries},
+    db/.style={cylinder, draw=accent, thick, fill=accent!10, shape border rotate=90, aspect=0.25, minimum width=2cm, minimum height=1.2cm, font=\small\bfseries},
+    msg/.style={rectangle, draw=textdark, dashed, minimum width=3cm, minimum height=0.6cm, font=\scriptsize},
+    arrow/.style={-{Stealth[scale=1.1]}, thick, draw=textdark}
+]
+
+    % Actors
+    \node[actor] (client) {Client};
+    \node[actor, below=1.2cm of client] (api) {FastAPI};
+    \node[actor, below=1.2cm of api] (redis) {Redis Broker};
+    \node[actor, below=1.2cm of redis] (worker) {Celery Worker};
+    \node[actor, below=1.2cm of worker] (gw) {Gateway};
+    \node[db, right=3cm of api, yshift=-1.5cm] (db) {PostgreSQL};
+
+    % 1. Client to API
+    \draw[arrow] (client.south) -- node[left, font=\scriptsize] {1. POST \code{/recover} + API Key + Idemp Key} (api.north);
+    
+    % 2. API to DB (Idempotency)
+    \draw[arrow] (api.east) -- node[above, font=\scriptsize, sloped] {2. Insert IdempotencyRecord} (db.120);
+    
+    % 3. API to DB (Transaction)
+    \draw[arrow] (api.south east) -- node[above, font=\scriptsize, sloped] {3. Insert Transaction (PENDING)} (db.150);
+    
+    % 4. API to Redis
+    \draw[arrow] (api.south) -- node[left, font=\scriptsize] {4. Enqueue \code{process\_orchestrator}} (redis.north);
+    
+    % 5. API to Client (Return)
+    \draw[arrow, draw=success] (api.west) to[out=180, in=180] node[left, font=\scriptsize, text=success] {5. 202 Accepted} (client.west);
+    
+    % 6. Redis to Worker
+    \draw[arrow] (redis.south) -- node[left, font=\scriptsize] {6. Consume Task} (worker.north);
+    
+    % 7. Worker to DB
+    \draw[arrow] (worker.east) -- node[below, font=\scriptsize, sloped] {7. OCC Update to AUTHORIZED} (db.210);
+    
+    % 8. Worker to Gateway
+    \draw[arrow] (worker.south) -- node[left, font=\scriptsize] {8. \code{ExecutionGuard.execute()}} (gw.north);
+    
+    % 9. Gateway to Worker
+    \draw[arrow, draw=success] (gw.east) to[out=0, in=0] node[right, font=\scriptsize, text=success] {9. Success (200 OK)} (worker.east);
+    
+    % 10. Worker to DB (Final)
+    \draw[arrow] (worker.north east) -- node[below, font=\scriptsize, sloped] {10. Final Update (SUCCEEDED)} (db.240);
+
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.8cm}
+
+% --- THE REFUND FLOW ---
+\subsection{Flow 2: Initiating a Refund}
+
+Unlike recoveries (which require LLM diagnosis and policy evaluation in the background), refunds are synchronous. The API holds the connection open, directly calls the \code{RefundService}, and waits for the gateway to respond.
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=0.8cm and 1.8cm,
+    actor/.style={rectangle, draw=secondary, thick, fill=bglight, minimum width=2.5cm, minimum height=0.8cm, rounded corners=4pt, font=\small\bfseries},
+    db/.style={cylinder, draw=accent, thick, fill=accent!10, shape border rotate=90, aspect=0.25, minimum width=2cm, minimum height=1.2cm, font=\small\bfseries},
+    arrow/.style={-{Stealth[scale=1.1]}, thick, draw=textdark}
+]
+
+    % Actors
+    \node[actor] (client) {Client};
+    \node[actor, below=1.2cm of client] (api) {FastAPI Router};
+    \node[actor, below=1.2cm of api] (service) {Refund Service};
+    \node[actor, below=1.2cm of service] (gw) {Gateway};
+    \node[db, right=3cm of api, yshift=-1cm] (db) {PostgreSQL};
+
+    % 1. Client to API
+    \draw[arrow] (client.south) -- node[left, font=\scriptsize] {1. POST \code{/refund} + Idemp Key} (api.north);
+    
+    % 2. API to DB (Idempotency)
+    \draw[arrow] (api.east) -- node[above, font=\scriptsize, sloped] {2. Insert IdempotencyRecord} (db.120);
+    
+    % 3. API to Service
+    \draw[arrow] (api.south) -- node[left, font=\scriptsize] {3. \code{initiate\_refund(txn\_id)}} (service.north);
+    
+    % 4. Service to DB (OCC)
+    \draw[arrow] (service.east) -- node[below, font=\scriptsize, sloped] {4. \code{UPDATE ... WHERE status='NONE'}} (db.210);
+    
+    % 5. Service to Gateway
+    \draw[arrow] (service.south) -- node[left, font=\scriptsize] {5. Gateway API Call} (gw.north);
+    
+    % 6. Gateway to Service
+    \draw[arrow, draw=success] (gw.east) to[out=0, in=0] node[right, font=\scriptsize, text=success] {6. Gateway returns Processing} (service.east);
+    
+    % 7. Service to DB (Update)
+    \draw[arrow] (service.north east) -- node[below, font=\scriptsize, sloped] {7. Update to \code{REFUND\_PROCESSING}} (db.240);
+    
+    % 8. Service to API
+    \draw[arrow] (service.west) to[out=180, in=180] node[left, font=\scriptsize] {8. Return Model} (api.west);
+    
+    % 9. API to Client
+    \draw[arrow, draw=success] (api.north west) to[out=135, in=225] node[left, font=\scriptsize, text=success] {9. 200 OK} (client.south west);
+
+\end{tikzpicture}
+\end{center}
+
+\begin{tcolorbox}[infobox={Synchronous vs. Asynchronous Refunds}]
+Notice that the Refund Flow ends in \code{REFUND\_PROCESSING}, not \code{REFUNDED}. Because actual fund transfers take days to settle between banks, the synchronous API call only guarantees that the refund was successfully \textit{submitted} to the gateway. The system relies entirely on the Webhook Architecture (Section 13) to receive the final \code{refund.processed} or \code{refund.failed} event days later.
+\end{tcolorbox}

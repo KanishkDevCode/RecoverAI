@@ -1,0 +1,99 @@
+% ============================================================
+% SECTION 14 — CONFIGURATION
+% ============================================================
+
+\section{Configuration}
+
+\begin{tcolorbox}[summarybox={\iconGear[1.5] Centralized Environment Control}]
+\color{textdark}
+In the original architecture, secrets and configuration variables were hardcoded directly into the application logic (e.g., \code{test\_secret\_key\_123}). This posed a severe security risk and made deploying across different environments impossible.
+
+Batch 3 introduced a centralized, environment-driven configuration model using \code{python-dotenv}. All configurations are now loaded dynamically at startup via \filepath{app/config.py}, strictly enforcing the separation of code and configuration.
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- THE CONFIGURATION MODEL ---
+\subsection{The Configuration Model (\filepath{app/config.py})}
+
+The configuration is parsed into a Pydantic \code{Settings} class. This provides type safety: if a boolean is expected but a string is provided, or if a required variable is completely missing in production, the application crashes immediately on boot before listening to any ports.
+
+\begin{tcolorbox}[codebox={Pydantic Settings Definition}]
+\begin{lstlisting}[language=Python]
+from pydantic_settings import BaseSettings
+from typing import List
+
+class Settings(BaseSettings):
+    ENVIRONMENT: str = "development"
+    MERCHANT_API_KEY: str
+    WEBHOOK_SECRET: str
+    DATABASE_URL: str
+    CELERY_BROKER_URL: str = ""
+    CORS_ALLOWED_ORIGINS: List[str] = ["http://localhost:5173"]
+    LLM_PROVIDER: str = "mock"
+
+    class Config:
+        env_file = ".env"
+
+settings = Settings()
+\end{lstlisting}
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- ENVIRONMENT VARIABLES MAP ---
+\subsection{Environment Variables Map}
+
+The centralized \filepath{.env} file contains the following critical variables. Note that the application behaves differently depending on the \code{ENVIRONMENT} flag.
+
+\vspace{0.5cm}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.5}
+\begin{longtable}{@{}p{4.5cm}p{2.5cm}p{8cm}@{}}
+\toprule
+\rowcolor{primary!10}
+\textbf{Variable} & \textbf{Type} & \textbf{Purpose / Behavior} \\
+\midrule
+\endhead
+
+\code{ENVIRONMENT} & \code{str} & Valid values: \code{development}, \code{production}. In production, CORS wildcards are blocked, missing secrets cause fatal crashes, and unauthenticated endpoints return 403. \\
+\hline
+\code{MERCHANT\_API\_KEY} & \code{str (Secret)} & The master API key required by clients to authenticate POST requests to the backend. Hashed to generate scoped Idempotency Keys. \\
+\hline
+\code{WEBHOOK\_SECRET} & \code{str (Secret)} & The cryptographic secret shared with the payment gateway (e.g., Razorpay). Used to generate and verify HMAC-SHA256 signatures on incoming webhooks. \\
+\hline
+\code{DATABASE\_URL} & \code{str} & Connection string for SQLAlchemy. \newline \textit{Dev:} \code{sqlite:///./recoverai.db} \newline \textit{Prod:} \code{postgresql://user:pass@host:5432/db} \\
+\hline
+\code{CELERY\_BROKER\_URL} & \code{str} & Connection string for Redis. \newline \textit{Dev/Prod:} \code{redis://localhost:6379/0}. If empty, the system gracefully falls back (or logs errors) depending on the environment. \\
+\hline
+\code{CORS\_ALLOWED\_ORIGINS} & \code{List[str]} & Comma-separated list of domains allowed to make cross-origin requests (e.g., the React frontend). Replaced the insecure \code{["*"]} wildcard. \\
+\hline
+\code{LLM\_PROVIDER} & \code{str} & Defines which diagnosis agent is loaded. Valid values: \code{mock}, \code{openai}, \code{ollama}, \code{anthropic}, \code{gemini}. \\
+\hline
+\code{OPENAI\_API\_KEY} & \code{str (Secret)} & Required only if \code{LLM\_PROVIDER=openai}. The system intelligently ignores this if using \code{mock} or \code{ollama}. \\
+\hline
+\code{OLLAMA\_BASE\_URL} & \code{str} & Connection string for the local Ollama daemon (default: \code{http://localhost:11434/api/chat}). \\
+\hline
+\code{OLLAMA\_MODEL} & \code{str} & The specific open-source model to load for Ollama (e.g., \code{llama3.1:8b}). \\
+\hline
+\code{MAX\_RETRIES} & \code{int} & Defines the absolute hard limit for recovery attempts in the deterministic Policy Engine (default: 2). \\
+\hline
+\code{MAX\_AUTO\_ACTION\_AMOUNT} & \code{float} & Defines the maximum financial amount (e.g., \code{5000.00}) the system is allowed to automatically retry. Anything above this is forced into \code{CREATE\_ESCALATION} by the Policy Engine. \\
+
+\bottomrule
+\end{longtable}
+\end{center}
+
+\vspace{0.8cm}
+
+% --- THE .ENV.EXAMPLE FILE ---
+\subsection{The \code{.env.example} Contract}
+
+To ensure developers and deployment pipelines know exactly what secrets are required, the repository maintains a strict \filepath{.env.example} file. 
+
+\begin{tcolorbox}[warningbox={No Secrets in Source Control}]
+\code{.env} is strictly added to \filepath{.gitignore}. The \filepath{.env.example} file contains only placeholders and safe default values (like \code{sqlite} and \code{localhost} paths). 
+
+When deploying RecoverAI V2 to a new environment, the DevOps engineer must manually copy \filepath{.env.example} to \filepath{.env} and populate the production secrets (specifically the API Key, Webhook Secret, and PostgreSQL URL) before the application will boot.
+\end{tcolorbox}

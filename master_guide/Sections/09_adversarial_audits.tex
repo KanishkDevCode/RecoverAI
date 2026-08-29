@@ -1,0 +1,116 @@
+% ============================================================
+% SECTION 9 — ADVERSARIAL AUDITS
+% ============================================================
+
+\section{Adversarial Audits}
+
+\begin{tcolorbox}[summarybox={\iconShield[1.5] Breaking the System to Fix It}]
+\color{textdark}
+A defining characteristic of RecoverAI V2's engineering culture was the use of \textbf{Adversarial Audits}. Rather than assuming the architecture was safe, development was periodically halted to subject the codebase to intense, malicious scrutiny.
+
+Two major audits fundamentally altered the architecture of the system. This section details the methodology, findings, and the resulting architectural shifts.
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- AUDIT 1: POST-BATCH 4 ---
+\subsection{Audit 1: The Final Adversarial Audit (Post-Batch 4)}
+
+Following Batch 4 (which introduced the ExecutionGuard and Webhook authentication), an audit was conducted explicitly to evaluate the "At-Most-Once" execution guarantee under extreme concurrency and crash conditions.
+
+\begin{tcolorbox}[infobox={Audit Methodology}]
+The auditor assumed the role of an attacker with full access to the API and knowledge of the internal state machine. The primary objectives were:
+\begin{enumerate}
+    \item Force a duplicate payment charge.
+    \item Force a duplicate refund.
+    \item Orphan a transaction permanently.
+    \item Forge a webhook payload.
+\end{enumerate}
+\end{tcolorbox}
+
+\subsubsection{The Findings Matrix}
+
+The audit uncovered structural flaws that invalidated the system's safety claims. The following matrix summarizes the critical findings:
+
+\vspace{0.3cm}
+\begin{center}
+\renewcommand{\arraystretch}{1.4}
+\begin{longtable}{@{}p{3.5cm}p{1.5cm}p{5cm}p{5cm}@{}}
+\toprule
+\rowcolor{primary!10}
+\textbf{Attack Vector} & \textbf{Severity} & \textbf{Vulnerability Details} & \textbf{Batch 4.6 Remediation} \\
+\midrule
+\endhead
+
+Concurrent Refund & \pzero & No row-locks during \code{initiate\_refund}. Two threads could bypass the state check. & Applied OCC (\code{UPDATE ... WHERE refund\_status = 'NONE'}). \\
+\hline
+Crash during Execution & \pzero & A crash between gateway success and DB commit left the TX as \code{NOT\_STARTED}. & \code{ExecutionGuard} updated to deeply inspect child attempt records. \\
+\hline
+Swallowed DB Error & \pone & API swallowed \code{IntegrityError} if Idempotency-Key was present. & Removed the bypass; explicitly return \code{409 Conflict}. \\
+\hline
+AUTHORIZED Orphans & \pone & A crash in the \code{AUTHORIZED} state left the TX permanently stuck. & Reconciliation worker updated to rescue via Evidence Checking. \\
+\hline
+Forged Webhook & \statusgreen{SAFE} & HMAC signature validation correctly blocked forged payloads. & No action required. \\
+\hline
+Prompt Injection & \statusgreen{SAFE} & Policy engine correctly downgraded malicious LLM recommendations. & No action required. \\
+
+\bottomrule
+\end{longtable}
+\end{center}
+
+\vspace{0.5cm}
+
+% --- AUDIT 2: POST-BATCH 5.3 ---
+\subsection{Audit 2: Celery \& Durable Webhooks (Post-Batch 5.3)}
+
+After Batch 5 migrated background tasks to Celery and Redis, a second audit was conducted to evaluate the queue topology for starvation, poison pills, and distributed race conditions.
+
+\begin{tcolorbox}[dangerbox={The P1 Vulnerability: Webhook Retry Starvation}]
+The audit analyzed the \code{reconcile\_pending\_webhooks} worker. This worker sweeps the database for \code{WebhookEvent} records stuck in \code{PENDING} or \code{FAILED} and re-enqueues them into Celery.
+
+\textbf{The Flaw:} The sweep logic used an immutable timestamp (\code{received\_at < 5 mins ago}). If a webhook had a permanent failure (e.g., a bug in the payload parser causing a \code{TypeError}), it would fail, stay \code{FAILED}, and be swept up again 5 minutes later. \textbf{Forever.}
+
+Given enough of these "poison pill" webhooks, the Celery queue would eventually starve, blocking legitimate financial traffic.
+\end{tcolorbox}
+
+\subsubsection{The Batch 5.3.1 Remediation}
+
+To fix this, a highly targeted patch (Batch 5.3.1) was applied without modifying the core ML or financial invariant logic.
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=1cm,
+    step/.style={rectangle, draw=primary, thick, fill=bglight, minimum width=4cm, minimum height=0.8cm, rounded corners=4pt, font=\small, drop shadow=black!5},
+    arrow/.style={-{Stealth[scale=1.1]}, thick, draw=textdark}
+]
+
+    \node[step] (fail) {Webhook Task Fails};
+    \node[step, below=of fail] (inc) {\code{retry\_count += 1} \& \code{last\_attempt\_at = NOW()}};
+    
+    \node[rectangle, draw=danger, thick, fill=danger!10, right=1.5cm of inc, minimum width=2.5cm, minimum height=0.8cm, rounded corners=4pt, font=\small, align=center] (perm) {Terminal State\\(\code{FAILED\_PERMANENTLY})};
+    
+    \node[rectangle, draw=secondary, thick, fill=secondary!10, below=1cm of inc, minimum width=2.5cm, minimum height=0.8cm, rounded corners=4pt, font=\small, align=center] (sweep) {Eligible for\\Next Sweep};
+
+    \draw[arrow] (fail) -- (inc);
+    \draw[arrow] (inc) -- node[above, font=\scriptsize] {If count > 3} (perm);
+    \draw[arrow] (inc) -- node[left, font=\scriptsize] {If count $\le$ 3} (sweep);
+
+\end{tikzpicture}
+\end{center}
+
+\begin{tcolorbox}[featurebox={Schema \& Logic Updates (Batch 5.3.1)}]
+\begin{itemize}
+    \item \textbf{Schema Expansion:} Added \code{retry\_count} (Integer) and \code{last\_attempt\_at} (DateTime) to the \code{WebhookEvent} table via an Alembic migration.
+    \item \textbf{Terminal State:} Introduced \code{FAILED\_PERMANENTLY}. Once a webhook hits 3 retries, it is marked terminal and ignored by the sweeper forever.
+    \item \textbf{Atomic Enforcement:} The retry budget is enforced atomically inside the sweeper query (\code{UPDATE ... WHERE retry\_count < 3}), preventing race conditions where two simultaneous sweepers might push a webhook to 4 retries.
+\end{itemize}
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- THE VALUE OF ADVERSARIAL THINKING ---
+\subsection{The Value of Adversarial Thinking}
+
+The architectural history of RecoverAI V2 proves that standard unit testing (testing the "happy path" or anticipated errors) is insufficient for financial systems. Both the P0 concurrent refund race and the P1 webhook starvation loop had 100\% passing unit tests at the time they were discovered. 
+
+It was only by actively trying to break the system's invariants that the engineering team achieved true production readiness.

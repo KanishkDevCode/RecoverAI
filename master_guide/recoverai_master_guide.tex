@@ -1,0 +1,117 @@
+\documentclass[11pt, a4paper]{article}
+
+\input{preamble}
+
+\begin{document}
+
+% ============================================================
+% COVER PAGE
+% ============================================================
+\begin{titlepage}
+\begin{center}
+
+\vspace*{2cm}
+
+\begin{tikzpicture}
+  % Background rectangle
+  \fill[primary, rounded corners=6pt] (-7, -2) rectangle (7, 2);
+  % Accent strip
+  \fill[secondary, rounded corners=6pt] (-7, -2) rectangle (-6, 2);
+  % Shield icon
+  \begin{scope}[shift={(-6.5,0)}, scale=2.5]
+    \fill[white] (0,0.35) -- (0.3,0.15) -- (0.3,-0.2) -- (0,-0.4) -- (-0.3,-0.2) -- (-0.3,0.15) -- cycle;
+    \fill[secondary] (0,0.2) -- (0.18,0.05) -- (0.18,-0.1) -- (0,-0.25) -- (-0.18,-0.1) -- (-0.18,0.05) -- cycle;
+  \end{scope}
+  % Title
+  \node[text=white, font=\fontsize{28}{34}\bfseries] at (0.5, 0.5) {RecoverAI V2};
+  \node[text=white!80, font=\Large] at (0.5, -0.5) {Master Technical Documentation};
+\end{tikzpicture}
+
+\vspace{1.5cm}
+
+{\large\color{textmuted} Autonomous Revenue Recovery System}
+
+\vspace{0.5cm}
+
+{\color{textmuted}\rule{8cm}{0.4pt}}
+
+\vspace{0.5cm}
+
+{\large\color{textdark} Complete Architecture, Security Model, \& Engineering History}
+
+\vspace{2cm}
+
+\begin{tikzpicture}
+  % Version/status boxes
+  \node[fill=bglight, draw=primary!30, rounded corners=4pt, minimum width=3.5cm, minimum height=1cm] at (-4, 0) {\begin{tabular}{c}\textcolor{textmuted}{\small Version}\\\textbf{2.0}\end{tabular}};
+  \node[fill=bglight, draw=primary!30, rounded corners=4pt, minimum width=3.5cm, minimum height=1cm] at (0, 0) {\begin{tabular}{c}\textcolor{textmuted}{\small Batches Completed}\\\textbf{1 -- 5.3.1}\end{tabular}};
+  \node[fill=bglight, draw=primary!30, rounded corners=4pt, minimum width=3.5cm, minimum height=1cm] at (4, 0) {\begin{tabular}{c}\textcolor{textmuted}{\small Tests Passing}\\\textbf{138}\end{tabular}};
+\end{tikzpicture}
+
+\vfill
+
+{\color{textmuted}\small Generated from repository source code inspection.\\No information has been invented.}
+
+\end{center}
+\end{titlepage}
+
+% ============================================================
+% TABLE OF CONTENTS
+% ============================================================
+\tableofcontents
+\newpage
+
+% ============================================================
+% SECTIONS
+% ============================================================
+\input{Sections/01_project_origin}
+\newpage
+\input{Sections/02_technology_stack}
+\newpage
+\input{Sections/03_original_architecture}
+\newpage
+\input{Sections/04_batch_history}
+\newpage
+\input{Sections/05_security_evolution}
+\newpage
+\input{Sections/06_financial_safety_model}
+\newpage
+\input{Sections/07_state_machine}
+\newpage
+\input{Sections/08_refund_state_machine}
+\newpage
+\input{Sections/09_adversarial_audits}
+\newpage
+\input{Sections/10_database_architecture}
+\newpage
+\input{Sections/11_alembic}
+\newpage
+\input{Sections/12_celery_redis}
+\newpage
+\input{Sections/13_webhook_architecture}
+\newpage
+\input{Sections/14_configuration}
+\newpage
+\input{Sections/15_testing_strategy}
+\newpage
+\input{Sections/16_failures_lessons}
+\newpage
+\input{Sections/17_current_architecture}
+\newpage
+\input{Sections/18_request_flows}
+\newpage
+\input{Sections/19_current_limitations}
+\newpage
+\input{Sections/20_what_remains}
+\newpage
+\input{Sections/21_production_readiness}
+\newpage
+\input{Sections/22_glossary}
+\newpage
+\input{Sections/23_interview_knowledge}
+\newpage
+\input{Sections/24_file_map}
+\newpage
+\input{Sections/25_executive_summary}
+
+\end{document}

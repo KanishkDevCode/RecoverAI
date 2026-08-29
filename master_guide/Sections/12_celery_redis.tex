@@ -1,0 +1,99 @@
+% ============================================================
+% SECTION 12 — CELERY & REDIS (DURABLE JOBS)
+% ============================================================
+
+\section{Celery \& Redis (Durable Jobs)}
+
+\begin{tcolorbox}[summarybox={\iconFlow[1.5] Moving Beyond In-Process Execution}]
+\color{textdark}
+Prior to Batch 5, RecoverAI V2 executed background tasks (like orchestrating a recovery or sweeping for stuck transactions) directly inside the FastAPI memory space using \code{fastapi.BackgroundTasks} and \code{asyncio}.
+
+While sufficient for local testing, in-process execution is fundamentally unsafe for financial orchestration. If the Uvicorn worker crashes, restarts, or runs out of memory, any currently executing background tasks vanish permanently. Batch 5 introduced \textbf{Celery} and \textbf{Redis} to provide a durable, distributed, and crash-resilient job topology.
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- THE QUEUE TOPOLOGY ---
+\subsection{The Distributed Queue Topology}
+
+The system splits background work into distinct processes, communicating via a Redis broker.
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=1.5cm,
+    actor/.style={rectangle, draw=primary, thick, fill=bglight, minimum width=2.5cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries, align=center},
+    redis/.style={cylinder, draw=danger, thick, fill=danger!10, shape border rotate=90, aspect=0.25, minimum width=3cm, minimum height=1.5cm, font=\small\bfseries, text=danger, drop shadow=black!5},
+    worker/.style={rectangle, draw=secondary, thick, fill=secondary!10, minimum width=2.5cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries, align=center},
+    arrow/.style={-{Stealth[scale=1.1]}, thick, draw=textdark}
+]
+
+    % Producers
+    \node[actor] (api) {FastAPI\\(Web Server)};
+    \node[actor, below=1cm of api] (beat) {Celery Beat\\(Scheduler)};
+    
+    % Broker
+    \node[redis, right=1.5cm of api, yshift=-0.8cm] (broker) {Redis\\(Message Broker)};
+    
+    % Consumers
+    \node[worker, right=1.5cm of broker, yshift=1cm] (w1) {Celery Worker 1\\(\code{high\_priority})};
+    \node[worker, right=1.5cm of broker, yshift=-1cm] (w2) {Celery Worker 2\\(\code{reconciliation})};
+
+    % Flow
+    \draw[arrow] (api.east) -- node[above, font=\scriptsize] {\code{process\_orchestrator}} (broker.135);
+    \draw[arrow] (api.east) -- node[below, font=\scriptsize, align=center] {\code{process\_webhook}\\} (broker.135);
+    \draw[arrow] (beat.east) -- node[below, font=\scriptsize] {\code{reconcile\_pending\_webhooks}} (broker.225);
+    \draw[arrow] (beat.east) -- node[above, font=\scriptsize] {\code{reconcile\_stuck\_refunds}} (broker.225);
+    
+    \draw[arrow] (broker.45) -- (w1.west);
+    \draw[arrow] (broker.315) -- (w2.west);
+
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.8cm}
+
+% --- CELERY COMPONENTS ---
+\subsection{Celery Components (\filepath{app/worker/})}
+
+\subsubsection{1. Celery Workers}
+Celery workers run in isolated processes entirely outside of the FastAPI web server. They listen to specific queues (e.g., \code{high\_priority} for immediate payment orchestrations, \code{reconciliation} for background sweeps). If a worker crashes mid-task, Celery's "late acknowledgment" feature ensures the task remains in Redis to be picked up by another worker.
+
+\subsubsection{2. Celery Beat}
+In the original architecture, the reconciliation sweeper was an infinite \code{while} loop running inside \filepath{main.py}. If a DevOps engineer deployed three instances of the FastAPI server, three infinite loops would run simultaneously, causing massive database lock contention.
+Celery Beat replaces this with a single, distributed scheduler that precisely enqueues the sweep tasks (e.g., every 60 seconds) onto the Redis queue.
+
+\vspace{0.8cm}
+
+% --- THE RETRY POLICY PARADOX ---
+\subsection{The Retry Policy Paradox}
+
+One of the most powerful features of Celery is its ability to automatically retry tasks that fail due to network errors. However, for RecoverAI V2, \textbf{automatic retries are strictly forbidden for financial actions}.
+
+\begin{tcolorbox}[warningbox={Why Financial Tasks Do Not Auto-Retry}]
+Consider a Celery worker executing \code{process\_orchestrator}. It calls the Razorpay gateway, the gateway charges the customer \$50, and returns a \code{200 OK}. In the exact millisecond before the worker can update PostgreSQL, the server loses power.
+
+If Celery was configured to auto-retry, another worker would wake up 5 minutes later, execute \code{process\_orchestrator} again, and charge the customer \textbf{another \$50}.
+\end{tcolorbox}
+
+\textbf{The Solution:} 
+\begin{enumerate}
+    \item \code{process\_orchestrator} is configured with \code{autoretry\_for=()} (zero automatic retries).
+    \item If the worker dies, the transaction remains orphaned in the database as \state{EXECUTING} or \state{UNKNOWN}.
+    \item The separate \code{reconciliation} sweeper naturally discovers this orphan, safely queries the gateway to find the true status of the first charge, and updates the database without risking a double charge.
+\end{enumerate}
+
+\vspace{0.8cm}
+
+% --- REDIS LIMITATIONS ---
+\subsection{Redis is Transit, Not Truth}
+
+\begin{tcolorbox}[infobox={The Role of Redis}]
+\textbf{Rule:} Redis is strictly ephemeral transit memory. PostgreSQL remains the authoritative source of truth.
+\end{tcolorbox}
+
+If the Redis server is completely destroyed and all queue data is lost, \textbf{no financial integrity is compromised}. 
+\begin{itemize}
+    \item Any pending orchestrations that were lost in Redis will be naturally detected by the next PostgreSQL reconciliation sweep (because they exist as \state{PENDING} in the DB).
+    \item Any webhook events that were lost in Redis will be detected by the webhook reconciliation sweep (because they exist as \code{PENDING} in the \code{WebhookEvent} table).
+\end{itemize}
+The system does not use a Celery "Result Backend". Task outcomes are natively logged via PostgreSQL \code{AuditLog} inserts and transaction status transitions.

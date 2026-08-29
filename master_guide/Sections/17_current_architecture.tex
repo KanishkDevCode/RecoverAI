@@ -1,0 +1,128 @@
+% ============================================================
+% SECTION 17 — CURRENT ARCHITECTURE (THE END STATE)
+% ============================================================
+
+\section{Current Architecture}
+
+\begin{tcolorbox}[summarybox={\iconGear[1.5] The Hardened System}]
+\color{textdark}
+As of Batch 5.3.1, RecoverAI V2 is a modular, event-driven, and highly resilient system. The dangerous monolith has been decomposed into distinct layers: an edge API secured by middleware, a durable message broker, asynchronous worker processes, and strict execution boundaries governing the payment gateway.
+
+This section maps the final, hardened state of the system architecture.
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- THE NEW ARCHITECTURE DIAGRAM ---
+\subsection{System Diagram (Current State)}
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=1.2cm and 1.2cm,
+    client/.style={circle, draw=textdark, thick, fill=bglight, minimum size=1.2cm, font=\small\bfseries},
+    api/.style={rectangle, draw=secondary, thick, fill=bglight, minimum width=3.5cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries, text=textdark, drop shadow=black!5},
+    worker/.style={rectangle, draw=primary, thick, fill=bglight, minimum width=3.5cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries, text=textdark, drop shadow=black!5},
+    redis/.style={cylinder, draw=danger, thick, fill=danger!10, shape border rotate=90, aspect=0.25, minimum width=2.5cm, minimum height=1.2cm, font=\small\bfseries, text=danger, drop shadow=black!5},
+    pg/.style={cylinder, draw=accent, thick, fill=accent!10, shape border rotate=90, aspect=0.25, minimum width=3.5cm, minimum height=2cm, font=\small\bfseries, text=accent, drop shadow=black!5},
+    guard/.style={rectangle, draw=success, thick, fill=success!15, minimum width=3.5cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries, text=success!70!black, drop shadow=black!5},
+    gw/.style={rectangle, draw=textdark, dashed, fill=textdark!10, minimum width=3cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries},
+    arrow/.style={-{Stealth[scale=1.1]}, thick, draw=textmuted},
+    data/.style={-{Stealth[scale=1.1]}, thick, draw=accent, dashed}
+]
+
+    % Row 1: Edge
+    \node[client] (client) {Client};
+    \node[api, right=1.5cm of client] (router) {FastAPI Router};
+    
+    % Row 2: Message Bus
+    \node[redis, below=1cm of router] (redis) {Redis Broker};
+    \node[api, left=1cm of redis, text width=2cm, align=center] (beat) {Celery Beat\\(Scheduler)};
+    
+    % Row 3: Workers
+    \node[worker, below left=1.2cm and -0.5cm of redis] (orch) {Orchestrator Worker};
+    \node[worker, below right=1.2cm and -0.5cm of redis] (recon) {Reconciliation Worker};
+    
+    % Data layer
+    \node[pg, right=2cm of orch, yshift=1cm] (pg) {PostgreSQL};
+    
+    % Execution
+    \node[guard, below=1.2cm of orch] (guard) {ExecutionGuard};
+    \node[gw, right=1.5cm of guard] (gateway) {Gateway Interface};
+
+    % Connections - Edge
+    \draw[arrow] (client) -- (router);
+    
+    % Connections - Bus
+    \draw[arrow] (router) -- node[right, font=\scriptsize] {Enqueue} (redis);
+    \draw[arrow] (beat) -- node[above, font=\scriptsize] {Schedule} (redis);
+    
+    % Connections - Workers
+    \draw[arrow] (redis.240) -- (orch.north);
+    \draw[arrow] (redis.300) -- (recon.north);
+    
+    % Connections - Execution
+    \draw[arrow] (orch) -- (guard);
+    \draw[arrow, draw=success, line width=1.5pt] (guard) -- (gateway);
+    \draw[arrow] (recon) |- node[near end, above, font=\scriptsize] {Read-Only Verification} (gateway);
+    
+    % Data Connections
+    \draw[data] (router.east) -| (pg.north);
+    \draw[data] (orch.east) -- (pg.west);
+    \draw[data] (recon.north) |- (pg.west);
+    
+    % Annotations
+    \node[font=\scriptsize\itshape, text=textdark, align=left, above=0.2cm of router] {Auth, Rate Limits, Idempotency};
+    \node[font=\scriptsize\itshape, text=textdark, align=left, below=0.1cm of guard] {Validates Invariants before Gateway};
+
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.8cm}
+
+% --- LAYER BREAKDOWN ---
+\subsection{Layer Breakdown}
+
+\subsubsection{1. The Edge Layer (FastAPI)}
+\begin{itemize}
+    \item \textbf{Responsibilities:} Authentication (\code{X-API-Key}), request validation (Pydantic), token-bucket rate limiting, and Idempotency generation.
+    \item \textbf{Action:} If a request is valid and not a duplicate, it saves the initial state (e.g., \code{PENDING}) durably to PostgreSQL, returns a \code{200 OK} to the client instantly, and fires a background job to the message broker.
+\end{itemize}
+
+\vspace{0.4cm}
+
+\subsubsection{2. The Transit Layer (Redis \& Celery)}
+\begin{itemize}
+    \item \textbf{Responsibilities:} Asynchronous job distribution and periodic scheduling.
+    \item \textbf{Action:} Redis acts purely as a message bus. Celery workers pull jobs (like \code{process\_orchestrator} or \code{process\_webhook}) off the queues. Celery Beat periodically fires reconciliation sweeps. \textbf{No financial execution retries occur at this layer.}
+\end{itemize}
+
+\vspace{0.4cm}
+
+\subsubsection{3. The Business Logic Layer (Orchestrator \& ML)}
+\begin{itemize}
+    \item \textbf{Responsibilities:} Determining what to do with a failed payment.
+    \item \textbf{Action:} The Celery worker runs the Orchestrator, which fetches features, calls the scikit-learn model, asks the LLM for a diagnosis, and runs the output through the deterministic Policy Engine. It updates the database using OCC.
+\end{itemize}
+
+\vspace{0.4cm}
+
+\subsubsection{4. The Safety \& Execution Layer (ExecutionGuard \& Gateway)}
+\begin{itemize}
+    \item \textbf{Responsibilities:} Preventing duplicate financial actions.
+    \item \textbf{Action:} The Orchestrator passes the \code{AUTHORIZED} attempt to \code{ExecutionGuard}. The Guard checks all other attempts for active/terminal states. If safe, it calls the \code{GatewayInterface} (Razorpay) and returns the result.
+\end{itemize}
+
+\vspace{0.8cm}
+
+% --- COMPARED TO THE ORIGINAL ---
+\subsection{How It Solves the Original Flaws}
+
+By comparing this architecture to the original diagram in Section 3, the hardening improvements are stark:
+
+\begin{tcolorbox}[featurebox={Architectural Improvements}]
+\begin{itemize}
+    \item \textbf{No Direct Gateway Access:} \code{ExecutionGuard} completely shields the gateway from the business logic.
+    \item \textbf{No In-Process Concurrency:} Background tasks are distributed via Redis, freeing the FastAPI router from managing async task lifecycles and eliminating lock contention from infinite loops.
+    \item \textbf{True Database Decoupling:} The API layer only touches the DB for idempotency and initial inserts; the workers handle the heavy OCC updates.
+\end{itemize}
+\end{tcolorbox}

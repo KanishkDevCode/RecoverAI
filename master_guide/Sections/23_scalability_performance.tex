@@ -1,0 +1,104 @@
+% ============================================================
+% SECTION 23 — SCALABILITY & PERFORMANCE
+% ============================================================
+
+\section{Scalability \& Performance}
+
+\begin{tcolorbox}[summarybox={\iconFlow[1.5] Scaling the Recovery Engine}]
+\color{textdark}
+Because payment recoveries happen in bursts (e.g., when a subscription billing run fails thousands of cards simultaneously), the system must be capable of scaling horizontally from 10 requests per second (RPS) to 1,000+ RPS without dropping data or deadlocking the database.
+
+The architectural shift to Celery and Redis in Batch 5 was primarily driven by this requirement.
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- HORIZONTAL SCALING (STATELESS EDGE) ---
+\subsection{Horizontal Scaling (Stateless Edge)}
+
+The FastAPI application is designed to be completely \textbf{stateless}. 
+
+\begin{itemize}
+    \item \textbf{No Local Caching:} The application does not use in-memory dictionaries for cross-request state. Rate limiting is currently a simple token bucket, but is designed to be backed by Redis in production.
+    \item \textbf{Idempotency via DB:} Because idempotency checks hit PostgreSQL (with unique constraints), multiple FastAPI instances behind a load balancer will safely reject duplicate requests even if they arrive at different pods.
+\end{itemize}
+
+DevOps can safely scale the API from 1 pod to 50 pods using Kubernetes HPA (Horizontal Pod Autoscaling) based on CPU utilization, instantly absorbing HTTP burst traffic.
+
+\vspace{0.8cm}
+
+% --- QUEUE-DRIVEN ELASTICITY ---
+\subsection{Queue-Driven Elasticity}
+
+The true heavy lifting of the system involves calling the LLM and the payment gateway. Both of these operations are I/O bound and extremely slow (1-5 seconds per request).
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=1.5cm,
+    api/.style={rectangle, draw=secondary, thick, fill=bglight, minimum width=2.5cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries, drop shadow=black!5},
+    redis/.style={cylinder, draw=danger, thick, fill=danger!10, shape border rotate=90, aspect=0.25, minimum width=2cm, minimum height=1.2cm, font=\small\bfseries, text=danger, drop shadow=black!5},
+    worker/.style={rectangle, draw=primary, thick, fill=primary!10, minimum width=2.5cm, minimum height=0.8cm, rounded corners=4pt, font=\scriptsize\bfseries},
+    arrow/.style={-{Stealth[scale=1.1]}, thick, draw=textdark}
+]
+
+    \node[api] (api1) {FastAPI Pod 1};
+    \node[api, below=0.5cm of api1] (api2) {FastAPI Pod 2};
+    \node[api, below=0.5cm of api2] (api3) {FastAPI Pod 3};
+    
+    \node[redis, right=1.5cm of api2] (redis) {Redis Queue};
+    
+    \node[worker, right=1.5cm of redis, yshift=2cm] (w1) {Celery Worker 1};
+    \node[worker, below=0.2cm of w1] (w2) {Celery Worker 2};
+    \node[worker, below=0.2cm of w2] (w3) {Celery Worker 3};
+    \node[worker, below=0.2cm of w3] (w4) {Celery Worker 4};
+    \node[worker, below=0.2cm of w4] (wn) {Celery Worker N...};
+
+    \draw[arrow] (api1.east) -- (redis.135);
+    \draw[arrow] (api2.east) -- (redis.180);
+    \draw[arrow] (api3.east) -- (redis.225);
+    
+    \draw[arrow] (redis.45) -- (w1.west);
+    \draw[arrow] (redis.east) -- (w3.west);
+    \draw[arrow] (redis.315) -- (wn.west);
+
+\end{tikzpicture}
+\end{center}
+
+By pushing the orchestration to Celery, the system decouples ingestion from execution. If 10,000 failed payments are submitted via the API in one minute, the API quickly saves them to PostgreSQL, queues them in Redis, and returns 202 Accepted. The Celery workers can then drain the queue at a steady, controlled rate based on the available LLM token quotas and gateway rate limits.
+
+\vspace{0.8cm}
+
+% --- DATABASE CONNECTION POOLING ---
+\subsection{Database Connection Pooling}
+
+As the number of FastAPI pods and Celery workers increases, the number of concurrent connections to the PostgreSQL database scales linearly. Without pooling, the database would quickly run out of available connection slots (typically capped at 100 in default Postgres installations), leading to cascading connection timeouts.
+
+\begin{tcolorbox}[codebox={SQLAlchemy Connection Pooling}]
+\begin{lstlisting}[language=Python]
+from sqlalchemy import create_engine
+
+# Database engine configured with PgBouncer-friendly settings
+engine = create_engine(
+    settings.DATABASE_URL,
+    pool_size=20,           # Max connections to keep open
+    max_overflow=10,        # Max extra connections during spikes
+    pool_timeout=30,        # Seconds to wait for a connection
+    pool_recycle=1800,      # Recycle connections after 30 mins
+)
+\end{lstlisting}
+\end{tcolorbox}
+
+For true production scale, the architecture assumes the use of \textbf{PgBouncer} running in transaction-pooling mode between the application and PostgreSQL to multiplex thousands of client connections onto a small number of real database connections.
+
+\vspace{0.8cm}
+
+% --- THE SQLITE BOTTLENECK ---
+\subsection{The SQLite Write Lock Bottleneck}
+
+\begin{tcolorbox}[warningbox={The Dev-Environment Ceiling}]
+When running RecoverAI V2 locally with SQLite, developers will notice a severe performance degradation if they attempt to load-test the API with more than $\sim$50 concurrent writes per second.
+\end{tcolorbox}
+
+SQLite locks the entire database file during a write operation. If 10 Celery workers attempt to execute the \code{with\_for\_update()} or OCC update simultaneously, 9 of them will hit a \code{database is locked} error and fail. 
+
+This is not a flaw in the application architecture, but a fundamental limitation of SQLite. Migrating to PostgreSQL resolves this instantly, as PostgreSQL uses Multi-Version Concurrency Control (MVCC) and true row-level locking, allowing thousands of concurrent writes to different rows without blocking the table.

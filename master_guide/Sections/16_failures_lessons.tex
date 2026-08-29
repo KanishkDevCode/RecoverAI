@@ -1,0 +1,86 @@
+% ============================================================
+% SECTION 16 — FAILURES & LESSONS LEARNED
+% ============================================================
+
+\section{Failures \& Lessons Learned}
+
+\begin{tcolorbox}[summarybox={\iconBulb[1.5] Engineering Truths Learned the Hard Way}]
+\color{textdark}
+The architectural journey of RecoverAI V2 is defined by the mistakes made in its initial monolithic version. This section documents the core philosophical lessons the engineering team learned during the hardening process. 
+
+These lessons now form the non-negotiable engineering standards for the project moving forward.
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- LESSON 1 ---
+\subsection{Lesson 1: The Database is Reality. Memory is an Illusion.}
+
+\textbf{The Failure:} Originally, the Orchestrator ran in a FastAPI \code{BackgroundTask}. It would update a Python object in memory, call the gateway, and then write the result to the database. If the Python process crashed after the gateway call but before the database write, the transaction was lost from reality, but the customer was still charged.
+
+\textbf{The Lesson:}
+\begin{tcolorbox}[infobox={State Exists Only in PostgreSQL}]
+Never hold financial state in application memory. The database is the only reality. Before executing any external action (like charging a card), the intent must be durably committed to the database (\code{EXECUTING}). If the application dies, the database retains the trail.
+\end{tcolorbox}
+
+\vspace{0.5cm}
+
+% --- LESSON 2 ---
+\subsection{Lesson 2: Assume the Process Will Die at the Worst Possible Millisecond}
+
+\textbf{The Failure:} The system assumed that a function reading \code{refund\_status = 'NONE'} and then setting it to \code{'REFUND\_REQUESTED'} two lines later was safe. The Final Adversarial Audit proved that two concurrent API requests could execute those two lines simultaneously, double-refunding the customer.
+
+\textbf{The Lesson:}
+\begin{tcolorbox}[infobox={Concurrency is Hostile}]
+Assume another thread is actively trying to mutate your data in the exact microsecond between your \code{SELECT} and your \code{UPDATE}. All state transitions must use Optimistic Concurrency Control (OCC) or Pessimistic Row-Level Locks (\code{with\_for\_update()}).
+\end{tcolorbox}
+
+\vspace{0.5cm}
+
+% --- LESSON 3 ---
+\subsection{Lesson 3: LLMs are Permanently Untrusted Actors}
+
+\textbf{The Failure:} In early prototypes, the LLM diagnosis agent was given raw transaction data and its output was blindly trusted to dictate the next recovery action.
+
+\textbf{The Lesson:}
+\begin{tcolorbox}[infobox={The Policy Engine Boundary}]
+You cannot write a prompt strong enough to mathematically guarantee an LLM won't be hijacked by prompt injection. Therefore, LLMs must be treated as permanently untrusted components. Their outputs are \textbf{recommendations}, not commands. The deterministic Policy Engine must always have the final say, aggressively downgrading any unsafe recommendations.
+\end{tcolorbox}
+
+\vspace{0.5cm}
+
+% --- LESSON 4 ---
+\subsection{Lesson 4: SQLite is Dangerous for Financial Testing}
+
+\textbf{The Failure:} The entire test suite was written against SQLite. SQLite silently ignores \code{SELECT ... FOR UPDATE} commands. The engineering team deployed code believing it was safe from concurrent sweepers, only to realize the tests were providing a false sense of security.
+
+\textbf{The Lesson:}
+\begin{tcolorbox}[infobox={Test Against Production Equivalents}]
+If the production environment relies on a specific database locking semantic, the test suite must execute against that exact database engine. While OCC mitigations were added to make the system safe on SQLite, future financial projects must use Dockerized PostgreSQL for the test suite.
+\end{tcolorbox}
+
+\vspace{0.5cm}
+
+% --- LESSON 5 ---
+\subsection{Lesson 5: Guard the API Idempotency Edge}
+
+\textbf{The Failure:} The API swallowed database \code{IntegrityErrors} under the assumption that they were always idempotency retries. This masked actual application bugs (like duplicate primary key generation for transactions) and allowed the API to return \code{200 OK} without actually persisting the request.
+
+\textbf{The Lesson:}
+\begin{tcolorbox}[infobox={Fail Closed}]
+Never swallow database exceptions generically. Idempotency must be explicitly checked against a dedicated \code{IdempotencyRecord} table. If an \code{IntegrityError} occurs elsewhere, the application must immediately rollback and return \code{409 Conflict} or \code{500 Internal Server Error}. Always fail closed.
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- SUMMARY ---
+\subsection{The New Engineering Standard}
+
+Any future code written for RecoverAI V2 must pass the following mental checklist before a PR is approved:
+
+\begin{enumerate}
+    \item What happens if the server loses power exactly on this line of code?
+    \item What happens if a webhook arrives for this transaction at the exact same moment?
+    \item What happens if the client sends this exact same request 5 times in one second?
+    \item Could an LLM hallucination on this line cause a financial loss?
+\end{enumerate}

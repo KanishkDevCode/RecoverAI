@@ -1,0 +1,137 @@
+% ============================================================
+% SECTION 8 — REFUND STATE MACHINE
+% ============================================================
+
+\section{Refund State Machine}
+
+\begin{tcolorbox}[summarybox={\iconFlow[1.5] Reversing the Transaction}]
+\color{textdark}
+While the \code{RecoveryAttempt} state machine governs charging money, the \textbf{Refund State Machine} governs returning it. A refund is arguably a higher-risk operation: double-charging a customer results in a support ticket; double-refunding a customer results in direct, unrecoverable capital loss for the merchant.
+
+The Refund State Machine is strictly decoupled from the recovery state, living directly on the \code{Transaction} model via the \code{refund\_status} field.
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- THE REFUND STATE GRAPH ---
+\subsection{The Refund State Graph}
+
+Unlike recovery attempts, which generate multiple child records, a refund is a singular operation against the parent \code{Transaction}. The state graph is simpler but enforces strict entry conditions.
+
+\vspace{0.5cm}
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=2cm and 1.5cm,
+    state/.style={rectangle, draw=primary, thick, fill=bglight, minimum width=3cm, minimum height=0.8cm, rounded corners=4pt, font=\small\bfseries, drop shadow=black!5},
+    terminal/.style={rectangle, draw=textdark, thick, fill=textdark!10, minimum width=3cm, minimum height=0.8cm, rounded corners=4pt, font=\small\bfseries, drop shadow=black!5},
+    ambiguous/.style={rectangle, draw=warning, thick, fill=warning!10, minimum width=3cm, minimum height=0.8cm, rounded corners=4pt, font=\small\bfseries, drop shadow=black!5},
+    success/.style={rectangle, draw=secondary, thick, fill=secondary!10, minimum width=3cm, minimum height=0.8cm, rounded corners=4pt, font=\small\bfseries, drop shadow=black!5},
+    fail/.style={rectangle, draw=danger, thick, fill=danger!10, minimum width=3cm, minimum height=0.8cm, rounded corners=4pt, font=\small\bfseries, drop shadow=black!5},
+    arrow/.style={-{Stealth[scale=1.1]}, thick, draw=textdark},
+    label/.style={font=\scriptsize\itshape, text=textmuted}
+]
+
+    % States
+    \node[state] (none) {NONE};
+    \node[state, right=of none] (req) {REFUND\_REQUESTED};
+    \node[state, below=1cm of req] (proc) {REFUND\_PROCESSING};
+    
+    \node[ambiguous, below left=1.2cm and 0cm of proc] (unk) {REFUND\_UNKNOWN};
+    \node[success, below=1.2cm of proc] (succ) {REFUNDED};
+    \node[fail, below right=1.2cm and 0cm of proc] (fail) {REFUND\_FAILED};
+
+    % Transitions
+    \draw[arrow] (none) -- node[above, font=\scriptsize, align=center] {API\\Request} (req);
+    \draw[arrow] (req) -- (proc);
+    
+    \draw[arrow] (proc) -- (succ);
+    \draw[arrow] (proc) -- (fail);
+    \draw[arrow] (proc) -| (unk);
+    
+    \draw[arrow] (unk.west) -| node[above left, font=\scriptsize, align=center] {Webhook /\\Reconciliation} (succ.west);
+    \draw[arrow] (unk.east) -| node[above right, font=\scriptsize, align=center] {Webhook /\\Reconciliation} (fail.east);
+
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.5cm}
+
+% --- ENTRY VALIDATION ---
+\subsection{Entry Validation: The "Recovered Only" Rule}
+
+Before a transaction can even enter the \refundstate{REFUND\_REQUESTED} state, \filepath{app/services/refund\_service.py} enforces a strict logical invariant:
+
+\begin{tcolorbox}[warningbox={You cannot refund a failure}]
+The system explicitly rejects any refund request unless the underlying \code{Transaction.status} is \code{"success"} OR the \code{Transaction.recovery\_status} is \code{"SUCCEEDED"}. Attempting to refund a failed payment immediately returns an HTTP 400 Bad Request.
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- THE P0 VULNERABILITY (BATCH 4) ---
+\subsection{The Batch 4 Vulnerability: The Concurrent Refund Race}
+
+During the Final Adversarial Audit, a \textbf{P0 severity vulnerability} was discovered in the refund initiation logic. The original code looked like this:
+
+\begin{tcolorbox}[codebox={Original Vulnerable Logic (\pzero)}]
+\begin{lstlisting}[language=Python]
+def initiate_refund(db: Session, transaction_id: str):
+    txn = db.query(Transaction).filter_by(id=transaction_id).first()
+    
+    # VULNERABILITY: Read occurs without a lock
+    if txn.refund_status in ["REFUND_REQUESTED", "REFUND_PROCESSING", "REFUNDED"]:
+        raise ValueError("Refund already in progress")
+        
+    # RACE CONDITION: Two threads can reach here simultaneously
+    txn.refund_status = "REFUND_REQUESTED"
+    db.commit()
+    
+    # Both threads proceed to call the gateway...
+\end{lstlisting}
+\end{tcolorbox}
+
+If an attacker (or a buggy merchant UI) fired two simultaneous refund API calls with \textit{different} Idempotency-Keys, the API Idempotency layer (Pillar 1) would allow both through. Both threads would read \code{refund\_status == "NONE"} at the exact same millisecond. Both would pass the check, and both would issue a refund to the gateway, double-refunding the transaction.
+
+\vspace{0.8cm}
+
+% --- THE BATCH 4.6 REMEDIATION ---
+\subsection{The Batch 4.6 Remediation: Optimistic State Enforcement}
+
+To fix this, the engineering team could have used a pessimistic lock (\code{with\_for\_update()}). However, because SQLite (used for testing and local dev) silently ignores row locks, the team opted for an \textbf{Optimistic Concurrency Control (OCC)} approach that works robustly across all SQL databases.
+
+\begin{tcolorbox}[codebox={Remediated OCC Logic (Batch 4.6)}]
+\begin{lstlisting}[language=Python]
+def initiate_refund(db: Session, transaction_id: str):
+    # Optimistic Update: Force the DB engine to evaluate the prior state
+    updated_rows = db.query(Transaction).filter(
+        Transaction.id == transaction_id,
+        (Transaction.refund_status == "NONE") | (Transaction.refund_status.is_(None))
+    ).update({"refund_status": "REFUND_REQUESTED"})
+    
+    if updated_rows == 0:
+        # The row was modified by another thread between read and write!
+        db.rollback()
+        raise ValueError("Concurrent refund detected or already refunded.")
+        
+    db.commit()
+\end{lstlisting}
+\end{tcolorbox}
+
+By moving the state check into the \code{WHERE} clause of the \code{UPDATE} statement, the system relies on the database engine's internal atomic write lock. Whichever thread arrives first will update the row; the second thread will find 0 rows matching \code{refund\_status == "NONE"} and safely abort.
+
+\vspace{0.8cm}
+
+% --- WEBHOOK INTEGRATION ---
+\subsection{Webhook Validation for Refunds}
+
+Because refunds take time (days) to clear banking networks, they heavily rely on asynchronous webhooks from the gateway (\code{refund.processed}, \code{refund.failed}).
+
+Prior to Batch 4.6, the webhook handler blindly accepted the gateway's status. This created an attack vector where a forged or buggy webhook could transition a \code{NONE} transaction directly to \code{REFUNDED}. 
+
+The webhook logic (\filepath{app/api/webhooks.py}) now strictly validates intent:
+\begin{enumerate}
+    \item When a \code{refund.processed} webhook arrives...
+    \item The system checks if \code{txn.refund\_status} is \code{REFUND\_REQUESTED} or \code{REFUND\_PROCESSING}.
+    \item If yes, it transitions to \code{REFUNDED}.
+    \item If no, it \textbf{rejects} the webhook. The system will never acknowledge a refund it did not explicitly initiate.
+\end{enumerate}

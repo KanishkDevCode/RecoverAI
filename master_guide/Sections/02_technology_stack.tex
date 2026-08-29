@@ -1,0 +1,283 @@
+% ============================================================
+% SECTION 2 — TECHNOLOGY STACK
+% ============================================================
+
+\section{Technology Stack}
+
+\begin{tcolorbox}[summarybox={\iconGear[1.5] Complete Technology Inventory}]
+\color{textdark}
+RecoverAI V2 is built on a modern Python/JavaScript stack with a strong emphasis on financial safety, durability, and observability. This section documents every technology actually present in the repository, why it was chosen, and whether it is production-ready.
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- BACKEND TECHNOLOGIES ---
+\subsection{Backend Technologies}
+
+\begin{tcolorbox}[batchbox={Python 3.12}]
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\textbf{What it does} & General-purpose programming language powering the entire backend. \\
+\textbf{Why chosen} & Rich ecosystem for ML (scikit-learn), web APIs (FastAPI), and task queues (Celery). \\
+\textbf{Where used} & All backend code: API, services, workers, agents, tests. \\
+\textbf{Alternative} & Node.js, Go, Java/Spring. Python chosen for ML integration and rapid prototyping. \\
+\textbf{Production-ready?} & \statusgreen{YES} \\
+\end{tabularx}
+\end{tcolorbox}
+
+\vspace{0.3cm}
+
+\begin{tcolorbox}[batchbox={FastAPI}]
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\textbf{What it does} & Modern async-capable Python web framework for building REST APIs. \\
+\textbf{Why chosen} & Automatic OpenAPI documentation, Pydantic validation, dependency injection, middleware support. \\
+\textbf{Where used} & \filepath{app/main.py}, \filepath{app/api/*.py} --- all HTTP endpoints. \\
+\textbf{Problem solved} & Type-safe request validation, structured API routing, CORS middleware. \\
+\textbf{Alternative} & Flask, Django REST Framework. FastAPI is faster and has native async. \\
+\textbf{Production-ready?} & \statusgreen{YES} (requires Uvicorn/Gunicorn for production serving). \\
+\end{tabularx}
+\end{tcolorbox}
+
+\vspace{0.3cm}
+
+\begin{tcolorbox}[batchbox={SQLAlchemy 2.0+}]
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\textbf{What it does} & Python ORM (Object-Relational Mapper) for database interactions. \\
+\textbf{Why chosen} & Database-agnostic model definitions, supports both SQLite and PostgreSQL. \\
+\textbf{Where used} & \filepath{app/models/db\_models.py}, \filepath{app/database.py}, all services. \\
+\textbf{Problem solved} & Abstracts SQL, provides \code{with\_for\_update()} for row locking, session management. \\
+\textbf{Alternative} & Raw SQL, Tortoise ORM, Peewee. SQLAlchemy is the industry standard. \\
+\textbf{Production-ready?} & \statusgreen{YES} \\
+\end{tabularx}
+\end{tcolorbox}
+
+\vspace{0.3cm}
+
+\begin{tcolorbox}[batchbox={PostgreSQL}]
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\textbf{What it does} & Production-grade relational database with true ACID transactions. \\
+\textbf{Why chosen} & Row-level locking (\code{SELECT ... FOR UPDATE}), concurrent write safety, robust constraint enforcement. \\
+\textbf{Where used} & \filepath{app/database.py} --- configurable via \code{DATABASE\_URL} environment variable. \\
+\textbf{Problem solved} & SQLite cannot enforce row-level locks; PostgreSQL prevents concurrent financial races. \\
+\textbf{Alternative} & MySQL, CockroachDB. PostgreSQL chosen for superior locking semantics. \\
+\textbf{Production-ready?} & \statusyellow{REQUIRES EXTERNAL SERVICE} (Neon.tech, Supabase, AWS RDS, or self-hosted). \\
+\end{tabularx}
+\end{tcolorbox}
+
+\vspace{0.3cm}
+
+\begin{tcolorbox}[batchbox={SQLite}]
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\textbf{What it does} & Embedded file-based relational database. \\
+\textbf{Why chosen} & Zero-config development database; tests run without external dependencies. \\
+\textbf{Where used} & Default \code{DATABASE\_URL=sqlite:///./recoverai.db} in development. \\
+\textbf{Problem solved} & Allows local development and test suite execution without PostgreSQL. \\
+\textbf{Limitation} & Silently ignores \code{FOR UPDATE} locks, hides concurrency bugs. \\
+\textbf{Production-ready?} & \statusred{NO} --- blocked by production config validation. \\
+\end{tabularx}
+\end{tcolorbox}
+
+\vspace{0.3cm}
+
+\begin{tcolorbox}[batchbox={Alembic}]
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\textbf{What it does} & Database schema migration tool for SQLAlchemy. \\
+\textbf{Why chosen} & Tracks schema changes as versioned migration files; supports upgrade/downgrade. \\
+\textbf{Where used} & \filepath{alembic/versions/} --- 2 migration files (baseline + webhook retry fields). \\
+\textbf{Problem solved} & \code{create\_all()} cannot modify existing tables; Alembic applies incremental changes safely. \\
+\textbf{Alternative} & Manual SQL scripts, Django-style migrations. Alembic integrates natively with SQLAlchemy. \\
+\textbf{Production-ready?} & \statusgreen{YES} \\
+\end{tabularx}
+\end{tcolorbox}
+
+\vspace{0.3cm}
+
+\begin{tcolorbox}[batchbox={Celery}]
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\textbf{What it does} & Distributed task queue for executing background jobs. \\
+\textbf{Why chosen} & Durable job delivery, crash recovery via late acknowledgment, multi-worker concurrency. \\
+\textbf{Where used} & \filepath{app/worker/celery\_app.py}, \filepath{app/worker/tasks.py}. \\
+\textbf{Problem solved} & In-process \code{BackgroundTasks} lose work on crash; Celery persists jobs in Redis. \\
+\textbf{Alternative} & Dramatiq, Huey, RQ. Celery is the most battle-tested Python task queue. \\
+\textbf{Production-ready?} & \statusyellow{REQUIRES REDIS BROKER} \\
+\end{tabularx}
+\end{tcolorbox}
+
+\vspace{0.3cm}
+
+\begin{tcolorbox}[batchbox={Celery Beat}]
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\textbf{What it does} & Periodic task scheduler for Celery (like a distributed cron). \\
+\textbf{Why chosen} & Replaces the unsafe \code{asyncio} while-loop reconciliation scheduler. \\
+\textbf{Where used} & \filepath{app/worker/celery\_app.py} --- schedules \code{reconcile\_all\_pending} every 60s. \\
+\textbf{Problem solved} & Multiple Gunicorn/K8s workers would each run their own reconciliation loop; Beat runs once. \\
+\textbf{Production-ready?} & \statusyellow{REQUIRES SINGLE-INSTANCE DEPLOYMENT} \\
+\end{tabularx}
+\end{tcolorbox}
+
+\vspace{0.3cm}
+
+\begin{tcolorbox}[batchbox={Redis}]
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\textbf{What it does} & In-memory data store used as Celery's message broker. \\
+\textbf{Why chosen} & Fast, reliable message transit for task queues. \\
+\textbf{Where used} & \code{CELERY\_BROKER\_URL=redis://localhost:6379/0}. \\
+\textbf{Problem solved} & Provides durable job delivery between FastAPI and Celery workers. \\
+\textbf{Critical note} & Redis is \textbf{NOT} the source of truth. If Redis loses data, PostgreSQL detects orphaned jobs via reconciliation. \\
+\textbf{Production-ready?} & \statusyellow{REQUIRES EXTERNAL SERVICE} (Upstash, Redis Cloud, or self-hosted). \\
+\end{tabularx}
+\end{tcolorbox}
+
+\vspace{0.3cm}
+
+\begin{tcolorbox}[batchbox={Pydantic 2.0+}]
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\textbf{What it does} & Data validation and serialization library using Python type hints. \\
+\textbf{Why chosen} & Native integration with FastAPI for request/response validation. \\
+\textbf{Where used} & \filepath{app/schemas/} --- transaction schemas, agent response schemas. \\
+\textbf{Problem solved} & Prevents malformed data from reaching business logic. \\
+\textbf{Production-ready?} & \statusgreen{YES} \\
+\end{tabularx}
+\end{tcolorbox}
+
+\vspace{0.3cm}
+
+\begin{tcolorbox}[batchbox={python-dotenv}]
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\textbf{What it does} & Loads environment variables from \filepath{.env} files. \\
+\textbf{Why chosen} & Centralizes configuration without hardcoding secrets in source code. \\
+\textbf{Where used} & \filepath{app/config.py} --- loaded at startup via \code{load\_dotenv()}. \\
+\textbf{Production-ready?} & \statusgreen{YES} \\
+\end{tabularx}
+\end{tcolorbox}
+
+\vspace{0.5cm}
+
+% --- ML/AI TECHNOLOGIES ---
+\subsection{ML / AI Technologies}
+
+\begin{tcolorbox}[batchbox={scikit-learn}]
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\textbf{What it does} & Machine learning library for the recovery probability prediction model. \\
+\textbf{Where used} & \filepath{app/services/ml\_service.py} --- loads \filepath{models/recovery\_model\_v2.pkl}. \\
+\textbf{Model type} & Pre-trained classifier (loaded via \code{joblib}), outputs recovery probability. \\
+\textbf{Production-ready?} & \statusgreen{YES} (model is pre-trained and serialized). \\
+\end{tabularx}
+\end{tcolorbox}
+
+\vspace{0.3cm}
+
+\begin{tcolorbox}[batchbox={LLM Diagnosis Agent (Multi-Provider)}]
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\textbf{What it does} & LLM-powered transaction failure diagnosis. \\
+\textbf{Where used} & \filepath{app/agents/diagnosis\_agent.py}. \\
+\textbf{Providers} & OpenAI (GPT-4o-mini), Ollama (local), Gemini (commented out), Anthropic (commented out), Mock (default). \\
+\textbf{Safety} & Transaction data is marked as \code{UNTRUSTED} in the prompt. Failed LLM responses default to \code{CREATE\_ESCALATION}. \\
+\textbf{Production-ready?} & \statusyellow{REQUIRES API KEY} --- currently defaults to mock agent. \\
+\end{tabularx}
+\end{tcolorbox}
+
+\vspace{0.3cm}
+
+\begin{tcolorbox}[batchbox={pandas / numpy / joblib}]
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\textbf{What they do} & Data manipulation (pandas), numerical computation (numpy), model serialization (joblib). \\
+\textbf{Where used} & \filepath{app/services/ml\_service.py}, \filepath{app/services/feature\_store.py}. \\
+\textbf{Production-ready?} & \statusgreen{YES} \\
+\end{tabularx}
+\end{tcolorbox}
+
+\vspace{0.5cm}
+
+% --- FRONTEND TECHNOLOGIES ---
+\subsection{Frontend Technologies}
+
+\begin{tcolorbox}[batchbox={React 19 + Vite 8}]
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\textbf{What it does} & Modern JavaScript UI framework with fast HMR development server. \\
+\textbf{Where used} & \filepath{frontend/} --- merchant dashboard for monitoring recovery operations. \\
+\textbf{Dependencies} & \code{react-router-dom} (routing), \code{lucide-react} (icons). \\
+\textbf{Production-ready?} & \statusgreen{YES} (builds successfully via \code{npm run build}). \\
+\end{tabularx}
+\end{tcolorbox}
+
+\vspace{0.5cm}
+
+% --- SECURITY TECHNOLOGIES ---
+\subsection{Security Technologies}
+
+\begin{tcolorbox}[batchbox={HMAC-SHA256}]
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\textbf{What it does} & Cryptographic signature verification for webhook payloads. \\
+\textbf{Where used} & \filepath{app/services/razorpay\_mock.py} --- \code{verify\_webhook\_signature()}. \\
+\textbf{How it works} & The gateway signs the payload with a shared secret; RecoverAI recomputes and compares using \code{hmac.compare\_digest()} (timing-safe). \\
+\textbf{Production-ready?} & \statusgreen{YES} \\
+\end{tabularx}
+\end{tcolorbox}
+
+\vspace{0.3cm}
+
+\begin{tcolorbox}[batchbox={contextvars (Python stdlib)}]
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\textbf{What it does} & Thread-safe and async-safe context propagation for request tracing. \\
+\textbf{Where used} & \filepath{app/services/logger.py} --- \code{request\_id\_var} ContextVar for request ID propagation. \\
+\textbf{Why important} & Ensures each log line carries the correct \code{X-Request-ID} even across async boundaries. \\
+\textbf{Production-ready?} & \statusgreen{YES} \\
+\end{tabularx}
+\end{tcolorbox}
+
+\vspace{0.5cm}
+
+% --- TESTING TECHNOLOGIES ---
+\subsection{Testing Technologies}
+
+\begin{tcolorbox}[batchbox={pytest}]
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\textbf{What it does} & Python test framework. \\
+\textbf{Where used} & \filepath{backend/tests/} --- unit, integration, security, e2e, and concurrency tests. \\
+\textbf{Test count} & \textbf{138 tests passing} as of Batch 5.3.1. \\
+\textbf{Production-ready?} & \statusgreen{YES} (development dependency only). \\
+\end{tabularx}
+\end{tcolorbox}
+
+\vspace{0.5cm}
+
+% --- TECHNOLOGY MAP ---
+\subsection{Technology Dependency Map}
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=1.2cm and 2.5cm,
+    tech/.style={rectangle, draw=primary!50, thick, fill=white, minimum width=2.8cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries, text=textdark, drop shadow=black!5},
+    infra/.style={rectangle, draw=secondary!50, thick, fill=secondary!5, minimum width=2.8cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries, text=textdark, drop shadow=black!5},
+    arrow/.style={-{Stealth[scale=0.9]}, thick, draw=textmuted},
+]
+    % Top layer
+    \node[tech] (react) {React / Vite};
+    
+    % Middle layer
+    \node[tech, below left=of react, xshift=-0.5cm] (fastapi) {FastAPI};
+    \node[tech, below right=of react, xshift=0.5cm] (celery) {Celery};
+    
+    % Service layer
+    \node[tech, below=of fastapi] (sqla) {SQLAlchemy};
+    \node[tech, below=of celery] (redis) {Redis};
+    
+    % Data layer
+    \node[infra, below=2cm of sqla, xshift=1.5cm] (pg) {PostgreSQL};
+    
+    % ML layer
+    \node[tech, left=1.5cm of fastapi] (sklearn) {scikit-learn};
+    \node[tech, below=of sklearn] (llm) {LLM Agent};
+    
+    % Arrows
+    \draw[arrow] (react) -- (fastapi);
+    \draw[arrow] (fastapi) -- (sqla);
+    \draw[arrow] (fastapi) -- (celery);
+    \draw[arrow] (celery) -- (redis);
+    \draw[arrow] (sqla) -- (pg);
+    \draw[arrow] (celery) -- (sqla);
+    \draw[arrow] (fastapi) -- (sklearn);
+    \draw[arrow] (fastapi) -- (llm);
+    
+\end{tikzpicture}
+\end{center}

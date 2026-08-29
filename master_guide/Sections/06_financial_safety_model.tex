@@ -1,0 +1,146 @@
+% ============================================================
+% SECTION 6 — FINANCIAL SAFETY MODEL
+% ============================================================
+
+\section{Financial Safety Model}
+
+\begin{tcolorbox}[summarybox={\iconShield[1.5] The "At-Most-Once" Guarantee}]
+\color{textdark}
+The primary technical mandate of RecoverAI V2 is the \textbf{At-Most-Once} financial execution guarantee. A transaction must never be charged twice, and a refund must never be issued twice. 
+
+Because networks drop packets, processes crash mid-execution, and clients retry aggressively, the system assumes that duplicate execution attempts \textit{will} occur. The Financial Safety Model is a combination of design patterns designed to deterministically block these duplicates.
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- THE THREE PILLARS ---
+\subsection{The Three Pillars of Financial Safety}
+
+The model is built on three distinct pillars, each defending a specific boundary of the application.
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=0.8cm,
+    pillar/.style={rectangle, draw=primary, thick, fill=bglight, minimum width=4.5cm, minimum height=1.2cm, rounded corners=4pt, font=\small\bfseries, text=textdark, drop shadow=black!5, align=center},
+    arrow/.style={-{Stealth[scale=1.1]}, thick, draw=textmuted}
+]
+
+    \node[pillar] (p1) {1. API Idempotency\\(\filepath{IdempotencyRecord})};
+    \node[pillar, right=of p1] (p2) {2. State Concurrency\\(\code{with\_for\_update()})};
+    \node[pillar, right=of p2] (p3) {3. ExecutionGuard\\(The Final Boundary)};
+    
+    \node[font=\scriptsize\itshape, text=textmuted, below=0.2cm of p1, align=center] {Protects the Edge\\(Prevents duplicate API calls)};
+    \node[font=\scriptsize\itshape, text=textmuted, below=0.2cm of p2, align=center] {Protects the Database\\(Prevents thread races)};
+    \node[font=\scriptsize\itshape, text=textmuted, below=0.2cm of p3, align=center] {Protects the Gateway\\(Prevents unsafe state transitions)};
+
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.8cm}
+
+% --- PILLAR 1: API IDEMPOTENCY ---
+\subsection{Pillar 1: API Idempotency}
+
+Every financial POST request (payment, recovery, refund) requires an \code{Idempotency-Key} header. The API maps this key, combined with the \code{X-API-Key}, into a dedicated PostgreSQL table (\code{idempotency\_records}).
+
+\begin{tcolorbox}[featurebox={Idempotency Lifecycle}]
+\begin{enumerate}
+    \item \textbf{Initial Request:} System attempts to insert \code{status='PENDING'} into the DB. If successful, processing begins.
+    \item \textbf{Concurrent Retry (Race):} If a second request arrives while the first is processing, the DB unique constraint throws an \code{IntegrityError}. The API catches it and returns \code{409 Conflict: Request already in progress}.
+    \item \textbf{Completed Retry:} If the first request finished, it updated the record to \code{COMPLETED} and saved the \code{response\_body}. The API intercepts the retry, skips execution entirely, and returns the cached JSON response with a \code{200 OK} and an \code{Idempotent-Replay: true} header.
+\end{enumerate}
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- PILLAR 2: OPTIMISTIC CONCURRENCY CONTROL ---
+\subsection{Pillar 2: Optimistic \& Pessimistic Concurrency}
+
+Idempotency protects against clients sending the same key twice. But what if two different background workers try to process the \textit{same} database record simultaneously?
+
+\begin{multicols}{2}
+\begin{tcolorbox}[infobox={Pessimistic Locking}]
+\textbf{Tool:} \code{with\_for\_update()}\\
+\textbf{Use Case:} Reconciliation sweepers.
+When the background task sweeps for stuck transactions, it uses a row-level lock. If a second worker is running, PostgreSQL forces it to wait or skip the row, ensuring only one worker parses the transaction.
+\end{tcolorbox}
+
+\columnbreak
+
+\begin{tcolorbox}[infobox={Optimistic Locking (OCC)}]
+\textbf{Tool:} \code{version} column.\\
+\textbf{Use Case:} State Machine transitions.
+Every attempt has a \code{version} int. When transitioning from \code{PENDING} to \code{AUTHORIZED}, the SQL reads: \code{UPDATE ... WHERE id=X AND version=Y}. If another thread already transitioned it, \code{version} is now \code{Y+1}, 0 rows are affected, and the application aborts.
+\end{tcolorbox}
+\end{multicols}
+
+\vspace{0.8cm}
+
+% --- PILLAR 3: EXECUTION GUARD ---
+\subsection{Pillar 3: ExecutionGuard (The Final Boundary)}
+
+Even with idempotency and database locks, logical errors in the orchestrator could still trigger a duplicate gateway call. \textbf{ExecutionGuard} is a standalone service injected exactly at the gateway boundary. No component in the system is allowed to call the \code{GatewayInterface} without passing through ExecutionGuard.
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=1.2cm,
+    actor/.style={rectangle, draw=secondary, thick, fill=bglight, minimum width=2.5cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries},
+    guard/.style={rectangle, draw=primary, thick, fill=primary!15, minimum width=3.5cm, minimum height=4cm, rounded corners=4pt, font=\small\bfseries, align=center},
+    gateway/.style={rectangle, draw=textdark, dashed, fill=textdark!10, minimum width=2.5cm, minimum height=4cm, rounded corners=4pt, font=\small\bfseries, align=center},
+    arrow/.style={-{Stealth[scale=1.1]}, thick, draw=textdark},
+    redcross/.style={draw=danger, ultra thick, -}
+]
+
+    % Actors
+    \node[actor] (orch) {Orchestrator};
+    \node[actor, below=1cm of orch] (refund) {Refund Service};
+    
+    % Guard
+    \node[guard, right=1.5cm of orch, yshift=-1cm] (eg) {ExecutionGuard\\(Safety Checkpoint)};
+    
+    % Gateway
+    \node[gateway, right=1.5cm of eg] (gw) {Payment\\Gateway};
+    
+    % Safe paths
+    \draw[arrow] (orch.east) -- (eg.150);
+    \draw[arrow] (refund.east) -- (eg.210);
+    \draw[arrow, draw=success, line width=1.5pt] (eg.east) -- node[above, font=\scriptsize\bfseries, text=success] {Valid} (gw.west);
+    
+    % Internal checks inside EG
+    \node[font=\scriptsize\itshape, text=textdark, align=left, yshift=-0.5cm] at (eg.center) {
+        $\bullet$ Check prior attempts\\
+        $\bullet$ Verify attempt state\\
+        $\bullet$ Validate action type\\
+        $\bullet$ Inspect parent TX
+    };
+
+\end{tikzpicture}
+\end{center}
+
+\begin{tcolorbox}[codebox={ExecutionGuard Deep Inspection Logic (\filepath{app/services/execution\_guard.py})}]
+\begin{lstlisting}[language=Python]
+def execute(self, action: str, attempt: RecoveryAttempt) -> ExecutionResult:
+    # 1. Action Allowlist
+    if action not in ["RETRY_PAYMENT"]:
+        raise ValueError("Invalid action")
+        
+    # 2. Strict State Enforcement
+    if attempt.status != "AUTHORIZED":
+        raise ValueError(f"Attempt must be AUTHORIZED, got {attempt.status}")
+        
+    # 3. Crash-Window Protection (Batch 4.6 fix)
+    for prior in transaction.recovery_attempts:
+        if prior.id != attempt.id and prior.status in [
+            "EXECUTING", "VERIFYING", "UNKNOWN", "SUCCEEDED"
+        ]:
+            raise ValueError("Prior attempt is active/terminal. Aborting.")
+            
+    # 4. Safe to execute
+    return self.gateway.execute_recovery_action(attempt)
+\end{lstlisting}
+\end{tcolorbox}
+
+\subsubsection{The Crash-Window Scenario}
+Before Batch 4.6, if the system crashed immediately after the gateway returned success but before the database committed the new transaction status, a rebooted worker would see the transaction as \code{NOT\_STARTED} and try again. 
+
+ExecutionGuard's \textbf{Deep Inspection} (Rule 3) prevents this. Even if the parent transaction appears \code{NOT\_STARTED}, the Guard inspects the \textit{child} attempts. Because the gateway call transitioned the child attempt to \code{EXECUTING}, the Guard detects the orphaned active attempt and aborts the new request, perfectly bridging the database-gateway crash window.

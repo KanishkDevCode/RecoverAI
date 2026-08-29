@@ -1,0 +1,85 @@
+% ============================================================
+% SECTION 22 — THE GATEWAY INTERFACE
+% ============================================================
+
+\section{The Gateway Interface}
+
+\begin{tcolorbox}[summarybox={\iconFlow[1.5] Abstracting the External World}]
+\color{textdark}
+In the original monolith, the Orchestrator directly instantiated \code{RazorpayMockService}. This hard-coupling made it impossible to test business logic without triggering payment side-effects, and structurally prohibited the system from easily supporting Stripe, Braintree, or Adyen in the future.
+
+Batch 4 resolved this by introducing the \textbf{Gateway Interface}, a strict abstraction layer enforcing dependency injection across the entire application.
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- THE ABSTRACTION PATTERN ---
+\subsection{The Abstraction Pattern}
+
+The application defines a strict Python abstract base class (\code{GatewayInterface}) in \filepath{app/gateways/base.py}. Any payment provider integrated into RecoverAI V2 must implement these exact methods and return standardized \code{ExecutionResult} models.
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=1cm and 2cm,
+    interface/.style={rectangle, draw=primary, thick, fill=primary!10, minimum width=4cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries, align=center},
+    impl/.style={rectangle, draw=secondary, thick, fill=bglight, minimum width=3cm, minimum height=0.8cm, rounded corners=4pt, font=\scriptsize\ttfamily, drop shadow=black!5},
+    arrow/.style={-{Stealth[scale=1.1]}, thick, draw=textdark, dashed}
+]
+
+    \node[interface] (base) {GatewayInterface (ABC)\\ \code{execute\_recovery\_action()}\\ \code{execute\_refund()}};
+    
+    \node[impl, below left=1.2cm and -1cm of base] (rzp) {RazorpayMockService};
+    \node[impl, below=1.2cm of base] (stripe) {StripeService (Planned)};
+    \node[impl, below right=1.2cm and -1cm of base] (adyen) {AdyenService (Planned)};
+
+    \draw[arrow] (rzp.north) -- node[left, font=\tiny, sloped] {implements} (base.south west);
+    \draw[arrow] (stripe.north) -- (base.south);
+    \draw[arrow] (adyen.north) -- node[right, font=\tiny, sloped] {implements} (base.south east);
+
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.8cm}
+
+% --- DEPENDENCY INJECTION ---
+\subsection{Dependency Injection (\filepath{app/api/dependencies.py})}
+
+To decouple the execution context, the application uses FastAPI's dependency injection system. When \code{ExecutionGuard} or \code{RefundService} needs to talk to the gateway, they do not import Razorpay. They ask the dependency container for "a gateway."
+
+\begin{tcolorbox}[codebox={Injecting the Gateway}]
+\begin{lstlisting}[language=Python]
+def get_gateway() -> GatewayInterface:
+    """
+    Returns the configured gateway adapter.
+    Currently hardcoded to RazorpayMockService for development.
+    """
+    return RazorpayMockService()
+
+# Inside ExecutionGuard
+class ExecutionGuard:
+    def __init__(self, gateway: GatewayInterface):
+        self.gateway = gateway
+\end{lstlisting}
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- THE MOCK SERVICE ---
+\subsection{RazorpayMockService: Simulating Reality}
+
+Because RecoverAI V2 is currently in a pre-production state, the default gateway is \code{RazorpayMockService}. However, it is not a simplistic \code{return True} mock. It is designed to aggressively simulate the unreliability of real banking networks.
+
+\begin{tcolorbox}[featurebox={Simulated Network Behaviors}]
+\begin{itemize}
+    \item \textbf{Latency:} It sleeps for 0.5 to 2.0 seconds via \code{asyncio.sleep()} or \code{time.sleep()} (depending on the async context) to simulate network latency, testing the application's timeout handling.
+    \item \textbf{Failure Injection:} For certain transaction amounts (e.g., \code{9999}), it intentionally raises unhandled exceptions to simulate a 502 Bad Gateway or a socket timeout, verifying the application's \state{UNKNOWN} state recovery.
+    \item \textbf{Async Webhooks:} While it returns synchronous success/failure for the API call, it intentionally omits final settlement status, forcing the system to rely on external webhooks (or the reconciliation sweep) to transition to \state{SUCCEEDED}.
+\end{itemize}
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- MULTI-TENANCY FOUNDATION ---
+\subsection{Foundation for Multi-Tenancy}
+
+The abstraction layer paves the way for \textbf{Multi-Tenancy}. In the future, \code{Transaction} records will include a \code{merchant\_id}. The \code{get\_gateway()} dependency can be upgraded to read the \code{merchant\_id}, look up the merchant's configured provider, and dynamically instantiate \code{StripeService} for Merchant A, and \code{RazorpayService} for Merchant B, without altering a single line of the Orchestrator, Policy Engine, or Execution Guard.

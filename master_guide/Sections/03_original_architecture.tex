@@ -1,0 +1,177 @@
+% ============================================================
+% SECTION 3 — ORIGINAL ARCHITECTURE (THE STARTING POINT)
+% ============================================================
+
+\section{Original Architecture}
+
+\begin{tcolorbox}[summarybox={\iconGear[1.5] The Baseline System}]
+\color{textdark}
+Before the multi-batch hardening process began, RecoverAI V2 existed as a functional but \textbf{fragile} monolithic application. While the core ML and LLM decision-making loops were operational, the surrounding financial infrastructure lacked the rigorous safety boundaries required for a production environment. 
+
+This section documents the \textit{original} architectural state of the system, highlighting the design choices that were later identified as security or reliability risks.
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- VISUALIZING THE ORIGINAL MONOLITH ---
+\subsection{System Diagram (Original State)}
+
+The initial architecture was highly coupled. The API layer, orchestration logic, and gateway interactions were not strictly bounded.
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=0.8cm and 1.5cm,
+    api/.style={rectangle, draw=secondary, thick, fill=bglight, minimum width=3.5cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries, text=textdark, drop shadow=black!5},
+    logic/.style={rectangle, draw=primary, thick, fill=bglight, minimum width=3.5cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries, text=textdark, drop shadow=black!5},
+    db/.style={cylinder, draw=accent, thick, fill=bglight, shape border rotate=90, aspect=0.25, minimum width=3cm, minimum height=1.5cm, font=\small\bfseries, text=textdark, drop shadow=black!5},
+    gateway/.style={rectangle, draw=textdark, thick, fill=textdark!10, minimum width=3cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries, text=textdark, dashed},
+    arrow/.style={-{Stealth[scale=1.1]}, thick, draw=textmuted},
+    danger_arrow/.style={-{Stealth[scale=1.1]}, thick, draw=danger, dashed}
+]
+
+    % Top layer: API
+    \node[api] (router) {Monolithic Router (\filepath{router.py})};
+    
+    % Middle layer: Logic
+    \node[logic, below left=1.2cm and -1cm of router] (orchestrator) {Recovery Orchestrator};
+    \node[logic, below right=1.2cm and -1cm of router] (refunds) {Refund Endpoint Logic};
+    
+    % Background worker
+    \node[api, left=1cm of router] (reconcile) {Asyncio While-Loop\\(\filepath{main.py})};
+    
+    % Data layer
+    \node[db, below=3cm of router] (sqlite) {SQLite DB};
+    
+    % External Gateway
+    \node[gateway, right=1.5cm of orchestrator, yshift=-1cm] (mock) {Razorpay Mock Service};
+
+    % Connections
+    \draw[arrow] (router) -- node[left, font=\scriptsize] {BackgroundTasks} (orchestrator);
+    \draw[arrow] (router) -- node[right, font=\scriptsize] {Direct Call} (refunds);
+    \draw[arrow] (reconcile) |- (sqlite);
+    \draw[arrow] (orchestrator) -- (sqlite);
+    \draw[arrow] (refunds) -- (sqlite);
+    
+    % Danger connections (Direct coupling)
+    \draw[danger_arrow] (orchestrator) -- node[above, font=\scriptsize, text=danger] {Unprotected Call} (mock);
+    \draw[danger_arrow] (refunds) -- node[right, font=\scriptsize, text=danger] {Unprotected Call} (mock);
+    \draw[danger_arrow] (mock) -- (sqlite);
+    
+\end{tikzpicture}
+\end{center}
+
+\begin{tcolorbox}[dangerbox={Critical Architectural Flaws Displayed Above}]
+\begin{enumerate}
+    \item \textbf{No Execution Guard:} The Orchestrator and the Refund logic directly instantiated and called the Gateway Service without passing through a centralized safety boundary.
+    \item \textbf{In-Process Concurrency:} The Reconciliation worker ran as an \code{asyncio} while-loop inside the main thread, risking duplicate sweeps if multiple API pods were booted.
+    \item \textbf{Monolithic Routing:} All endpoints (payments, refunds, webhooks) were crammed into a single \filepath{router.py}, making middleware enforcement difficult.
+\end{enumerate}
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- COMPONENT BREAKDOWN ---
+\subsection{Original Component Breakdown}
+
+\subsubsection{1. The API Layer (\filepath{app/api/router.py})}
+Initially, the entire API was defined in a single file. There was no modularity.
+\begin{itemize}
+    \item \textbf{Authentication:} Non-existent for some endpoints (like WebSockets) and hardcoded to a static string (\code{test\_secret\_key\_123}) for others.
+    \item \textbf{Rate Limiting:} None. The system was vulnerable to basic DoS or aggressive API polling.
+    \item \textbf{CORS:} Set to \code{allow\_origins=["*"]}, permitting any domain to interface with the backend.
+    \item \textbf{Exception Handling:} Broad \code{try...except} blocks swallowed critical database errors (such as \code{IntegrityError} on duplicate transaction inserts).
+\end{itemize}
+
+\vspace{0.4cm}
+
+\subsubsection{2. The Orchestrator (\filepath{app/services/orchestrator.py})}
+The core brain of the recovery system was highly coupled to the API execution context.
+\begin{itemize}
+    \item \textbf{Background Execution:} Triggered via FastAPI's \code{BackgroundTasks}. If the Uvicorn/Gunicorn process died during orchestration, the task was permanently dropped from memory with no persistence.
+    \item \textbf{Gateway Coupling:} It directly instantiated \code{RazorpayMockService}. There was no abstract \code{GatewayInterface}, making it impossible to easily swap payment providers or safely mock tests without monkeypatching.
+    \item \textbf{Execution Logic:} It executed the financial recovery action and \textit{then} attempted to update the database. If a crash occurred in the millisecond between gateway success and database commit, the system would blindly retry the payment upon restart.
+\end{itemize}
+
+\vspace{0.4cm}
+
+\subsubsection{3. Refunds Handling}
+Refunds were a complete afterthought in the original architecture.
+\begin{itemize}
+    \item \textbf{No State Machine:} Refunds were triggered via the router, which naively set \code{refund\_status = "REFUND\_PROCESSING"} and fired a background task that blindly updated it to \code{REFUNDED} after a sleep.
+    \item \textbf{No Concurrency Protection:} Two rapid requests to refund the same transaction would both read the state as "success" and issue parallel gateway calls.
+\end{itemize}
+
+\vspace{0.8cm}
+
+% --- THE DATABASE STATE ---
+\subsection{The Database State (Original)}
+
+The original system used \textbf{SQLite} exclusively. While adequate for early prototyping, SQLite fundamentally lacks support for true row-level locking via \code{SELECT ... FOR UPDATE}.
+
+\begin{tcolorbox}[codebox={Original (Flawed) Financial Lock Implementation}]
+\begin{lstlisting}[language=Python]
+# Original orchestrator logic (Pseudo-code)
+txn = db.query(Transaction).filter(Transaction.id == tx_id).first()
+
+if txn.recovery_status == "NOT_STARTED":
+    # ⚠️ RACE CONDITION: Two threads can reach here simultaneously
+    txn.recovery_status = "EXECUTING"
+    db.commit()
+    
+    # ⚠️ NO EXECUTION GUARD: Direct call
+    result = RazorpayMockService.charge(txn)
+    
+    txn.recovery_status = result.status
+    db.commit() 
+    # ⚠️ CRASH WINDOW: If process dies before this commit, 
+    # the transaction remains stuck or gets double-charged.
+\end{lstlisting}
+\end{tcolorbox}
+
+Because SQLite silently ignores \code{with\_for\_update()}, the developers were under the false impression that their database queries were locked and safe from concurrent races. It wasn't until the Final Adversarial Audit (post-Batch 4) that the system's reliance on OCC (Optimistic Concurrency Control) for attempts, but lack of OCC for refunds, was fully exposed.
+
+\vspace{0.8cm}
+
+% --- LACK OF IDEMPOTENCY ---
+\subsection{The Idempotency Void}
+
+A defining feature of the original architecture was the lack of strict \textbf{system-wide idempotency}.
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=1.5cm,
+    client/.style={circle, draw=primary, thick, fill=bglight, minimum size=1.5cm, align=center, font=\small\bfseries},
+    api/.style={rectangle, draw=secondary, thick, fill=bglight, minimum width=3cm, minimum height=1cm, rounded corners=4pt},
+    gateway/.style={rectangle, draw=accent, thick, fill=bglight, minimum width=3cm, minimum height=1cm, rounded corners=4pt},
+    arrow/.style={-{Stealth[scale=1.1]}, thick, draw=textdark},
+    cross/.style={draw=danger, ultra thick, -}
+]
+
+    \node[client] (client) {Client};
+    \node[api, right=of client] (api) {RecoverAI API};
+    \node[gateway, right=of api] (gateway) {Payment Gateway};
+    
+    \draw[arrow] (client.45) -- node[above, font=\scriptsize] {Request A} (api.145);
+    \draw[arrow] (client.-45) -- node[below, font=\scriptsize] {Request A (Retry)} (api.215);
+    
+    \draw[arrow] (api.35) -- node[above, font=\scriptsize] {Charge 1} (gateway.145);
+    \draw[arrow] (api.-35) -- node[below, font=\scriptsize] {Charge 2 (Duplicate)} (gateway.215);
+    
+    \node[text=danger, font=\bfseries] at (3.5, 0) {\huge $\times$};
+    \node[text=danger, font=\scriptsize, align=center, yshift=-1.2cm] at (3.5, 0) {No Idempotency-Key\\Header Enforcement};
+
+\end{tikzpicture}
+\end{center}
+
+Clients could send identical requests, and because the API didn't strictly hash and lock based on an \code{Idempotency-Key} header mapped against a dedicated \code{IdempotencyRecord} table, network retries could theoretically result in duplicate recoveries.
+
+\vspace{0.8cm}
+
+% --- TRANSITION TO THE BATCHES ---
+\subsection{The Mandate for Hardening}
+
+By the time the core ML and LLM features were proven viable, it became clear that the underlying engineering infrastructure could not support a financial production environment. 
+
+To resolve this, the engineering team embarked on a rigorous, phased hardening process. The rules were strict: \textbf{No new ML/LLM features could be added until the financial safety, concurrency, and reliability invariants were mathematically proven.}
+
+This hardening effort was divided into \textbf{Batches}, which are detailed in the next section.

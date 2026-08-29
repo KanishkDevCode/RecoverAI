@@ -1,0 +1,30 @@
+name: Compile LaTeX Master Guide
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'master_guide/**'
+  workflow_dispatch: # Allows manual trigger from the GitHub Actions tab
+
+jobs:
+  build_latex:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Compile LaTeX Document
+        uses: xu-cheng/latex-action@v3
+        with:
+          working_directory: master_guide
+          root_file: recoverai_master_guide.tex
+          compiler: latexmk
+          args: -pdf -interaction=nonstopmode -halt-on-error
+
+      - name: Upload PDF Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RecoverAI_Master_Guide_PDF
+          path: master_guide/recoverai_master_guide.pdf

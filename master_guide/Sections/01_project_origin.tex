@@ -1,0 +1,204 @@
+% ============================================================
+% SECTION 1 — PROJECT ORIGIN
+% ============================================================
+
+\section{Project Origin}
+
+% --- EXECUTIVE SUMMARY BOX ---
+\begin{tcolorbox}[summarybox={\iconBulb[1.5] What is RecoverAI V2?}]
+\color{textdark}
+RecoverAI V2 is an \textbf{autonomous revenue recovery system} designed to automatically detect, diagnose, and recover failed payment transactions. When a customer's payment fails (e.g., insufficient funds, bank timeout, card declined), RecoverAI uses a combination of \textbf{machine learning}, \textbf{LLM-powered diagnosis}, and \textbf{deterministic safety policies} to decide whether and how to retry, escalate, or contact the customer --- all without human intervention.
+
+The system is designed with a foundational safety guarantee: \textbf{at-most-once financial execution}. A payment must never be charged twice, a refund must never be issued twice, regardless of crashes, concurrent requests, duplicate deliveries, or infrastructure failures.
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- THE PROBLEM ---
+\subsection{The Problem}
+
+\begin{tcolorbox}[infobox={\iconWarning[1.3] The Revenue Leakage Problem}]
+\color{textdark}
+Every online business faces a persistent problem: \textbf{payment failures}. Industry data suggests 10--15\% of online payment attempts fail. These failures have many causes:
+
+\begin{itemize}
+    \item \textbf{Insufficient funds} --- the customer's account is temporarily empty
+    \item \textbf{Bank timeouts} --- the issuing bank's systems are slow or unresponsive
+    \item \textbf{Card network errors} --- transient failures in Visa/Mastercard infrastructure
+    \item \textbf{Fraud suspicion} --- the bank's automated fraud detection blocks the transaction
+    \item \textbf{Limit exceeded} --- daily or monthly spending limits reached
+\end{itemize}
+
+Many of these failures are \textbf{recoverable}. If the system waited a few minutes and retried, or sent the customer a reminder, the payment would succeed. But most merchants simply drop these transactions, losing revenue permanently.
+
+RecoverAI solves this by \textbf{automatically recovering failed payments} using intelligent decision-making while maintaining strict financial safety guarantees.
+\end{tcolorbox}
+
+\vspace{0.5cm}
+
+% --- WHO IS IT FOR ---
+\subsection{Target Users}
+
+RecoverAI is designed as a \textbf{backend service} for online merchants and payment platforms. It sits between the merchant's application and the payment gateway (e.g., Razorpay, Stripe), intercepting failed transactions and attempting autonomous recovery.
+
+\begin{multicols}{2}
+\begin{tcolorbox}[featurebox={Primary Users}]
+\begin{itemize}
+    \item E-commerce platforms
+    \item SaaS subscription services
+    \item Fintech payment aggregators
+    \item Any business processing online payments
+\end{itemize}
+\end{tcolorbox}
+
+\columnbreak
+
+\begin{tcolorbox}[featurebox={Integration Model}]
+\begin{itemize}
+    \item REST API integration
+    \item Webhook-driven event processing
+    \item Merchant dashboard for monitoring
+    \item API key authentication
+\end{itemize}
+\end{tcolorbox}
+\end{multicols}
+
+\vspace{0.5cm}
+
+% --- BUSINESS FLOW ---
+\subsection{The Basic Business Flow}
+
+In simple terms, here is what happens when a payment fails and RecoverAI processes it:
+
+\vspace{0.3cm}
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=0.8cm,
+    step/.style={rectangle, draw=primary!60, thick, fill=bglight, minimum width=4.5cm, minimum height=1cm, rounded corners=4pt, font=\small, text=textdark, drop shadow=black!5},
+    arrow/.style={-{Stealth[scale=1.1]}, thick, draw=primary!60},
+    label/.style={font=\scriptsize\itshape, text=textmuted, align=center}
+]
+
+    \node[step] (cust) {Customer Attempts Payment};
+    \node[step, below=of cust] (fail) {Payment Fails};
+    \node[step, below=of fail] (ingest) {RecoverAI Ingests Transaction};
+    \node[step, below=of ingest] (ml) {ML Model Predicts Recovery Probability};
+    \node[step, below=of ml] (llm) {LLM Agent Diagnoses Failure};
+    \node[step, below=of llm] (policy) {Policy Engine Evaluates Safety};
+    \node[step, below=of policy] (guard) {ExecutionGuard Validates Invariants};
+    \node[step, below=of guard] (gateway) {Gateway Executes Recovery Action};
+    \node[step, below=of gateway] (verify) {Verification \& Final State};
+
+    \draw[arrow] (cust) -- (fail);
+    \draw[arrow] (fail) -- (ingest);
+    \draw[arrow] (ingest) -- (ml);
+    \draw[arrow] (ml) -- (llm);
+    \draw[arrow] (llm) -- (policy);
+    \draw[arrow] (policy) -- (guard);
+    \draw[arrow] (guard) -- (gateway);
+    \draw[arrow] (gateway) -- (verify);
+
+    % Side labels
+    \node[label, right=0.3cm of fail] {e.g., insufficient funds};
+    \node[label, right=0.3cm of ml] {0.0 to 1.0 probability};
+    \node[label, right=0.3cm of llm] {RETRY / WAIT / ESCALATE / STOP};
+    \node[label, right=0.3cm of policy] {amount / risk / retry limits};
+    \node[label, right=0.3cm of guard] {at-most-once enforcement};
+    \node[label, right=0.3cm of gateway] {Razorpay / Mock};
+    \node[label, right=0.3cm of verify] {SUCCEEDED / FAILED / UNKNOWN};
+
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.5cm}
+
+% --- TECHNICAL IMPLEMENTATION BEHIND EACH STEP ---
+\subsection{Technical Implementation Behind Each Step}
+
+\begin{tcolorbox}[featurebox={Step 1: Payment Ingestion}]
+\textbf{File:} \filepath{app/api/payments.py}
+
+When a payment fails, the merchant's frontend or payment gateway sends a POST request to \code{/api/v1/payments}. The API validates the request using Pydantic schemas, checks API key authentication, enforces rate limits, and performs idempotency validation. The failed transaction is persisted to PostgreSQL, and a durable Celery task (\code{process\_orchestrator}) is enqueued for background recovery processing.
+\end{tcolorbox}
+
+\begin{tcolorbox}[featurebox={Step 2: ML Probability Prediction}]
+\textbf{File:} \filepath{app/services/ml\_service.py}
+
+A pre-trained scikit-learn model (\filepath{models/recovery\_model\_v2.pkl}) estimates the probability that this specific transaction can be recovered. The model uses hydrated features from the \code{FeatureStore} including transaction amount, currency, payment method, failure code, and historical customer behavior. The raw probability (0.0--1.0) is passed downstream without thresholding.
+\end{tcolorbox}
+
+\begin{tcolorbox}[featurebox={Step 3: LLM Diagnosis}]
+\textbf{File:} \filepath{app/agents/diagnosis\_agent.py}
+
+A configurable LLM agent (supporting OpenAI, Ollama, or a deterministic mock) analyzes the transaction context and recommends an action. The agent prompt explicitly marks all transaction data as \texttt{UNTRUSTED} to prevent prompt injection attacks. The recommended action must be one of: \code{RETRY\_PAYMENT}, \code{WAIT\_AND\_RETRY}, \code{SEND\_RECOVERY\_MESSAGE}, \code{CREATE\_ESCALATION}, or \code{STOP\_AUTOMATION}.
+\end{tcolorbox}
+
+\begin{tcolorbox}[featurebox={Step 4: Policy Engine}]
+\textbf{File:} \filepath{app/policy/rules.py}
+
+A deterministic, tiered policy engine evaluates whether the LLM's recommendation is safe to execute. It considers risk tier (based on ML probability and failure code), amount tier (SMALL/MEDIUM/LARGE), and retry count. The policy engine can \textbf{downgrade} the agent's recommendation (e.g., from RETRY to ESCALATION) but never \textbf{upgrade} it beyond the safety bounds.
+\end{tcolorbox}
+
+\begin{tcolorbox}[featurebox={Step 5: ExecutionGuard}]
+\textbf{File:} \filepath{app/services/execution\_guard.py}
+
+The final safety boundary before any financial execution. ExecutionGuard validates: (1) the action is in the allowlist, (2) the attempt exists and is in AUTHORIZED state, (3) no prior attempt for this transaction has reached a terminal or ambiguous state, (4) the transaction itself is not already terminal. Only if all invariants pass does execution proceed to the gateway.
+\end{tcolorbox}
+
+\begin{tcolorbox}[featurebox={Step 6: Gateway Execution}]
+\textbf{File:} \filepath{app/services/razorpay\_mock.py}
+
+The gateway adapter executes the actual financial operation via the payment provider's API. The current implementation uses a \code{MockGateway} that simulates Razorpay behavior, including success, failure, and timeout scenarios. Gateway-level idempotency is enforced using persistent \code{IdempotencyRecord} entries in PostgreSQL.
+\end{tcolorbox}
+
+\vspace{0.5cm}
+
+% --- INITIAL ASSUMPTIONS ---
+\subsection{Initial Assumptions}
+
+\begin{tcolorbox}[warningbox={\iconWarning[1.3] Assumptions That Existed at the Beginning}]
+\color{textdark}
+When RecoverAI V2 was initially built, several assumptions were made that later proved problematic:
+
+\begin{enumerate}
+    \item \textbf{SQLite is sufficient for development and testing} --- Later discovered to hide critical concurrency issues that only manifest under PostgreSQL's true row-level locking.
+    \item \textbf{In-process background tasks are reliable} --- FastAPI's \code{BackgroundTasks} drop work silently if the process crashes.
+    \item \textbf{FAILED means definitively failed} --- Later discovered that broad exception handling could classify network timeouts as FAILED, making this state potentially ambiguous.
+    \item \textbf{Checking \code{Transaction.recovery\_status} prevents duplicate execution} --- A crash window existed between gateway success and the transaction status update.
+    \item \textbf{A single API key in source code is acceptable for development} --- Hardcoded secrets created deployment risks.
+    \item \textbf{CORS wildcard (\code{*}) is acceptable} --- Created a cross-origin attack surface.
+\end{enumerate}
+
+Each of these assumptions was systematically identified and addressed across Batches 1 through 5.3.1.
+\end{tcolorbox}
+
+\vspace{0.5cm}
+
+% --- INITIAL WEAKNESSES ---
+\subsection{Initial Weaknesses}
+
+The original RecoverAI V2 codebase had the following structural weaknesses that motivated the multi-batch hardening process:
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=0.5cm,
+    weak/.style={rectangle, draw=danger!50, thick, fill=danger!5, minimum width=7cm, minimum height=0.8cm, rounded corners=3pt, font=\small, text=textdark},
+]
+    \node[weak] (w1) {No row-level locking on financial state transitions};
+    \node[weak, below=of w1] (w2) {No crash-safe execution boundary};
+    \node[weak, below=of w2] (w3) {In-process background tasks (no durability)};
+    \node[weak, below=of w3] (w4) {Hardcoded API keys and secrets};
+    \node[weak, below=of w4] (w5) {CORS wildcard allowing any origin};
+    \node[weak, below=of w5] (w6) {No webhook signature verification};
+    \node[weak, below=of w6] (w7) {No request tracing or structured logging};
+    \node[weak, below=of w7] (w8) {No rate limiting on financial endpoints};
+    \node[weak, below=of w8] (w9) {SQLite as primary database};
+    \node[weak, below=of w9] (w10) {No reconciliation for stuck refunds};
+\end{tikzpicture}
+\end{center}
+
+\begin{tcolorbox}[successbox={Current Status}]
+\color{textdark}
+All ten of these weaknesses have been addressed across Batches 1--5.3.1. The detailed remediation history is documented in Section 4 (Batch-by-Batch History) and Section 5 (Security Evolution).
+\end{tcolorbox}

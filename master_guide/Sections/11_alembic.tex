@@ -1,0 +1,107 @@
+% ============================================================
+% SECTION 11 — ALEMBIC (SCHEMA MIGRATIONS)
+% ============================================================
+
+\section{Schema Migrations (Alembic)}
+
+\begin{tcolorbox}[summarybox={\iconGear[1.5] Safely Evolving the Schema}]
+\color{textdark}
+In the early days of development, RecoverAI V2 relied on SQLAlchemy's \code{Base.metadata.create\_all(bind=engine)} to create tables on startup. While convenient, this approach is destructive for production: it cannot alter existing tables, add columns, or apply index changes without dropping the entire database.
+
+To solve this, the system uses \textbf{Alembic}, the industry-standard migration tool for SQLAlchemy. Alembic tracks database schema changes as versioned Python scripts, allowing the database to evolve safely alongside the application code.
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- HOW IT WORKS ---
+\subsection{How Alembic Integrates}
+
+Alembic operates as a separate CLI tool (\code{alembic upgrade head}) that runs before the FastAPI application boots. 
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=1.5cm,
+    script/.style={rectangle, draw=secondary, thick, fill=bglight, minimum width=3cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries, drop shadow=black!5},
+    db/.style={cylinder, draw=primary, thick, fill=primary!10, shape border rotate=90, aspect=0.25, minimum width=2.5cm, minimum height=1.5cm, font=\small\bfseries, drop shadow=black!5},
+    table/.style={rectangle, draw=textdark, dashed, fill=white, minimum width=2.5cm, minimum height=0.6cm, font=\scriptsize\ttfamily},
+    arrow/.style={-{Stealth[scale=1.1]}, thick, draw=textdark}
+]
+
+    \node[script] (m1) {Migration 1\\(Baseline)};
+    \node[script, below=0.5cm of m1] (m2) {Migration 2\\(Webhook Retry)};
+    
+    \node[db, right=3cm of m1, yshift=-0.5cm] (pg) {Database};
+    
+    \node[table, below=0.1cm of pg] (alembic) {alembic\_version};
+    
+    \draw[arrow] (m1.east) -- node[above, font=\scriptsize] {Applies schema} (pg.160);
+    \draw[arrow] (m2.east) -- node[below, font=\scriptsize] {Alters table} (pg.200);
+    
+    \draw[->, thick, draw=secondary, dashed] (alembic.west) -- ++(-1,0) |- node[near start, below, font=\scriptsize, text=secondary] {Checks current state} (m2.west);
+
+\end{tikzpicture}
+\end{center}
+
+\begin{tcolorbox}[infobox={The \code{alembic\_version} Table}]
+When Alembic runs, it creates a single-row table in the database called \code{alembic\_version}. This table stores the hash of the most recently applied migration script. When a deployment occurs, Alembic reads this hash, compares it to the scripts in the repository, and applies only the missing updates in chronological order.
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- MIGRATION HISTORY ---
+\subsection{Migration History}
+
+The repository currently contains two migration files in the \filepath{backend/alembic/versions/} directory.
+
+\subsubsection{1. The Baseline Migration}
+\textbf{ID:} \code{647f86570217} | \textbf{File:} \filepath{647f86570217\_baseline\_schema.py}
+
+This migration represents the consolidated state of the database after Batches 1 through 4.6. Instead of having dozens of tiny development migrations, the engineering team "squashed" the schema into a single baseline before preparing for production. It creates:
+\begin{itemize}
+    \item \code{transactions}
+    \item \code{recovery\_attempts}
+    \item \code{audit\_logs}
+    \item \code{idempotency\_records}
+    \item \code{webhook\_events} (Original schema)
+\end{itemize}
+
+\vspace{0.4cm}
+
+\subsubsection{2. The Webhook Retry Remediation}
+\textbf{ID:} \code{faecf6256136} | \textbf{File:} \filepath{faecf6256136\_add\_webhook\_retry\_fields.py}
+
+Generated during Batch 5.3.1 to resolve the P1 Webhook Retry Starvation vulnerability discovered in the adversarial audit.
+
+\begin{tcolorbox}[codebox={Batch 5.3.1 Migration Code}]
+\begin{lstlisting}[language=Python]
+def upgrade() -> None:
+    # Add retry_count with a default of 0
+    op.add_column('webhook_events', 
+        sa.Column('retry_count', sa.Integer(), server_default='0', nullable=False)
+    )
+    # Add last_attempt_at for bounded sweep scheduling
+    op.add_column('webhook_events', 
+        sa.Column('last_attempt_at', sa.DateTime(timezone=True), nullable=True)
+    )
+
+def downgrade() -> None:
+    op.drop_column('webhook_events', 'last_attempt_at')
+    op.drop_column('webhook_events', 'retry_count')
+\end{lstlisting}
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- BEST PRACTICES FOR FUTURE DEVELOPMENT ---
+\subsection{Best Practices for Future Changes}
+
+As RecoverAI V2 moves toward production, any future changes to the database schema must strictly adhere to the following rules:
+
+\begin{tcolorbox}[warningbox={Production Schema Rules}]
+\begin{enumerate}
+    \item \textbf{No Model Edits Without Migrations:} Changing \filepath{app/models/db\_models.py} without generating an Alembic migration will result in a fatal schema mismatch in production.
+    \item \textbf{Autogenerate Support:} Use \code{alembic revision --autogenerate -m "description"} to automatically generate migration scripts based on changes to the SQLAlchemy models.
+    \item \textbf{Manual Review Required:} Autogenerated scripts must be manually reviewed. Alembic often struggles to correctly infer table renames or complex constraint changes.
+    \item \textbf{SQLite Limitations:} SQLite does not fully support the \code{ALTER TABLE} command (e.g., dropping columns is highly problematic in SQLite but trivial in PostgreSQL). Alembic handles this via "batch mode" recreations, but testing migrations on PostgreSQL is mandatory.
+\end{enumerate}
+\end{tcolorbox}

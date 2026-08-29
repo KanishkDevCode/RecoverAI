@@ -1,0 +1,258 @@
+\documentclass[11pt, a4paper]{article}
+
+% --- UNIVERSAL PREAMBLE BLOCK ---
+\usepackage[a4paper, top=2.5cm, bottom=2.5cm, left=2cm, right=2cm]{geometry}
+\usepackage{fontspec}
+
+\usepackage[english, bidi=basic, provide=*]{babel}
+\babelprovide[import, onchar=ids fonts]{english}
+
+% Set default/Latin font to Sans Serif in the main (rm) slot for a modern look
+\babelfont{rm}{Noto Sans}
+
+% --- PACKAGES FOR VISUALS AND LAYOUT ---
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, shadows, calc, fit}
+\usepackage[many]{tcolorbox}
+\usepackage{multicol}
+\usepackage{enumitem}
+
+% Fix lists for non-English standard if needed (safe default)
+\setlist[itemize]{label=\textcolor{primary}{\textbullet}}
+
+% --- COLOR PALETTE ---
+\definecolor{primary}{HTML}{1E3A8A}   % Deep Blue
+\definecolor{secondary}{HTML}{0D9488} % Teal
+\definecolor{accent}{HTML}{D97706}    % Amber
+\definecolor{bglight}{HTML}{F8FAFC}   % Slate 50
+\definecolor{textdark}{HTML}{0F172A}  % Slate 900
+\definecolor{textmuted}{HTML}{64748B} % Slate 500
+
+% --- CUSTOM TIKZ ICONS ---
+% Since external icons (like fontawesome) are forbidden, we draw native vector icons
+\newcommand{\iconGear}[1][1.2]{%
+\begin{tikzpicture}[scale=#1, baseline=-0.3em]
+  \fill[secondary] (0,0) circle (0.35);
+  \fill[white] (0,0) circle (0.15);
+  \foreach \i in {0, 45, ..., 315} {
+    \fill[secondary, rotate=\i] (0.3, -0.08) rectangle (0.45, 0.08);
+  }
+\end{tikzpicture}%
+}
+
+\newcommand{\iconChart}[1][1.2]{%
+\begin{tikzpicture}[scale=#1, baseline=-0.3em]
+  \fill[primary] (-0.3,-0.3) rectangle (-0.1, 0.1);
+  \fill[primary] (0,-0.3) rectangle (0.2, 0.4);
+  \fill[accent] (0.3,-0.3) rectangle (0.5, 0.6);
+  \draw[textdark, thick, line cap=round] (-0.4,-0.4) -- (0.6,-0.4);
+  \draw[textdark, thick, line cap=round] (-0.4,-0.4) -- (-0.4,0.7);
+\end{tikzpicture}%
+}
+
+\newcommand{\iconBulb}[1][1.2]{%
+\begin{tikzpicture}[scale=#1, baseline=-0.3em]
+  \fill[accent] (0,0.2) circle (0.25);
+  \fill[accent] (-0.15,0) rectangle (0.15,0.2);
+  \fill[textdark] (-0.1,-0.1) rectangle (0.1,0.05);
+  \fill[textdark] (-0.05,-0.2) rectangle (0.05,-0.1);
+\end{tikzpicture}%
+}
+
+% --- TCOLORBOX STYLES ---
+\tcbset{
+  % Style for the main executive summary
+  summarybox/.style={
+    enhanced,
+    colback=bglight,
+    colframe=primary,
+    boxrule=0pt,
+    leftrule=4pt,
+    arc=2pt,
+    fonttitle=\bfseries\Large,
+    coltitle=primary,
+    colbacktitle=bglight,
+    title=#1,
+    attach title to upper,
+    after title={\\[0.5em]},
+    drop shadow=black!10
+  },
+  % Style for detailed component features
+  featurebox/.style={
+    enhanced,
+    colback=white,
+    colframe=secondary,
+    boxrule=1pt,
+    arc=4pt,
+    fonttitle=\bfseries,
+    title=#1,
+    drop shadow=black!5,
+    toptitle=1.5mm,
+    bottomtitle=1.5mm
+  }
+}
+
+% Hyperref must be the last package
+\usepackage[colorlinks=true, linkcolor=primary, urlcolor=secondary]{hyperref}
+
+\begin{document}
+
+% --- HEADER ---
+\begin{center}
+    \begin{tikzpicture}
+        % Background header ribbon
+        \fill[primary, rounded corners=3pt] (-8.5, -1.2) rectangle (8.5, 1.2);
+        \fill[secondary, rounded corners=3pt] (-8.5, -1.2) rectangle (-7.5, 1.2);
+        
+        % Title text
+        \node[text=white, font=\Huge\bfseries] at (0, 0.2) {Project Nova Overview};
+        \node[text=white!80, font=\large] at (0, -0.6) {Next-Generation Analytics Infrastructure};
+    \end{tikzpicture}
+\end{center}
+
+\vspace{0.5cm}
+
+% --- EXECUTIVE SUMMARY ---
+\begin{tcolorbox}[summarybox={\iconBulb[1.5] Executive Summary}]
+    \color{textdark}
+    Project Nova is a highly scalable, real-time analytics engine designed to process millions of data points per second. By leveraging cutting-edge container orchestration and distributed databases, it provides unparalleled visibility into user behavior and system performance. 
+    
+    This document outlines the core architecture, detailed component breakdown, and expected performance metrics of the proposed system.
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- SYSTEM ARCHITECTURE (VISUALIZATION) ---
+\noindent\textcolor{primary}{\Large\bfseries \iconGear[1.5] Core Architecture Visualization}
+\vspace{0.3cm}
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=1.5cm and 2cm,
+    box/.style={rectangle, draw=primary, thick, fill=white, minimum width=3cm, minimum height=1.5cm, rounded corners=4pt, drop shadow},
+    db/.style={cylinder, draw=accent, thick, fill=white, shape border rotate=90, aspect=0.25, minimum width=2.5cm, minimum height=2.5cm, drop shadow},
+    arrow/.style={-{Stealth[scale=1.2]}, thick, draw=textmuted}
+]
+
+    % Nodes
+    \node[box] (client) {\begin{tabular}{c}\textbf{Client App}\\(Web / Mobile)\end{tabular}};
+    \node[box, right=of client, yshift=2cm, fill=bglight] (api1) {\begin{tabular}{c}\textbf{Ingestion API}\\(Node.js)\end{tabular}};
+    \node[box, right=of client, yshift=-2cm, fill=bglight] (api2) {\begin{tabular}{c}\textbf{Query API}\\(Python/FastAPI)\end{tabular}};
+    
+    \node[box, right=of api1, fill=secondary!10, draw=secondary] (kafka) {\begin{tabular}{c}\textbf{Message Stream}\\(Kafka)\end{tabular}};
+    
+    \node[db, right=of api2, xshift=1.5cm] (db) {\begin{tabular}{c}\textbf{Data Lake}\\(ClickHouse)\end{tabular}};
+    
+    % Grouping box
+    \node[draw=textmuted, dashed, rounded corners, fit=(api1) (api2) (kafka), inner sep=0.5cm, label=above:\textcolor{textmuted}{Microservices Layer}] (layer) {};
+
+    % Connections
+    \draw[arrow] (client) -- node[above, sloped, text=textmuted, font=\small] {Events} (api1.west);
+    \draw[arrow, <->] (client) -- node[above, sloped, text=textmuted, font=\small] {GraphQL} (api2.west);
+    
+    \draw[arrow] (api1) -- (kafka);
+    \draw[arrow] (kafka) -| node[right, near start, text=textmuted, font=\small] {Batch load} (db);
+    \draw[arrow, <->] (api2) -- node[above, text=textmuted, font=\small] {SQL} (db);
+
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.8cm}
+
+% --- DETAILED COMPONENTS ---
+\noindent\textcolor{primary}{\Large\bfseries Detailed Component Analysis}
+\vspace{0.3cm}
+
+\begin{multicols}{2}
+
+\begin{tcolorbox}[featurebox={1. High-Throughput Ingestion}]
+    The \textbf{Ingestion API} is optimized for write-heavy workloads. It validates incoming telemetry data and acts as a buffer.
+    \begin{itemize}[leftmargin=*]
+        \item Sub-millisecond latency.
+        \item Horizontally scalable via Kubernetes.
+        \item Automatic schema validation.
+    \end{itemize}
+\end{tcolorbox}
+
+\begin{tcolorbox}[featurebox={2. Distributed Stream Processing}]
+    Using \textbf{Kafka}, we decouple data ingestion from storage. This allows multiple consumers to process the same data streams in real-time.
+    \begin{itemize}[leftmargin=*]
+        \item Fault-tolerant architecture.
+        \item 7-day data retention buffer.
+    \end{itemize}
+\end{tcolorbox}
+
+\columnbreak
+
+\begin{tcolorbox}[featurebox={3. Columnar Data Lake}]
+    \textbf{ClickHouse} serves as the analytical backend, executing aggregations over billions of rows in milliseconds.
+    \begin{itemize}[leftmargin=*]
+        \item 10x compression ratio.
+        \item Materialized views for fast dashboards.
+        \item Vectorized query execution.
+    \end{itemize}
+\end{tcolorbox}
+
+\begin{tcolorbox}[featurebox={4. Unified Query Layer}]
+    A \textbf{GraphQL API} abstracts the underlying database complexity, providing frontend engineers with a simple interface.
+    \begin{itemize}[leftmargin=*]
+        \item Role-based access control (RBAC).
+        \item Query caching via Redis.
+    \end{itemize}
+\end{tcolorbox}
+
+\end{multicols}
+
+\vspace{0.5cm}
+
+% --- DATA VISUALIZATION / METRICS ---
+\noindent\textcolor{primary}{\Large\bfseries \iconChart[1.5] Projected Performance Gains}
+\vspace{0.3cm}
+
+We expect significant improvements in both ingestion speed and query latency compared to the legacy system. The chart below illustrates the targeted benchmarks.
+
+\vspace{0.4cm}
+\begin{center}
+\begin{tikzpicture}[font=\sffamily]
+    % Grid lines
+    \draw[gray!30, dashed] (0, 0) grid (10, 5);
+    
+    % Axes
+    \draw[thick, textdark, -{Stealth}] (0,0) -- (10.5,0) node[right] {Metric};
+    \draw[thick, textdark, -{Stealth}] (0,0) -- (0,5.5) node[above] {Relative Performance (x)};
+    
+    % Y-axis labels
+    \foreach \y in {1,2,3,4,5}
+        \node[left, textmuted] at (0,\y) {\y x};
+        
+    % Bars
+    % Group 1: Query Speed
+    \fill[secondary] (1.5,0) rectangle (2.5, 1);
+    \node[above] at (2, 1) {Legacy};
+    
+    \fill[primary] (2.8,0) rectangle (3.8, 4.5);
+    \node[above, font=\bfseries] at (3.3, 4.5) {4.5x};
+    
+    \node[below, font=\bfseries, textdark] at (2.65, -0.2) {Query Speed};
+
+    % Group 2: Throughput
+    \fill[secondary] (6.5,0) rectangle (7.5, 1);
+    \node[above] at (7, 1) {Legacy};
+    
+    \fill[accent] (7.8,0) rectangle (8.8, 3.2);
+    \node[above, font=\bfseries] at (8.3, 3.2) {3.2x};
+    
+    \node[below, font=\bfseries, textdark] at (7.65, -0.2) {Data Throughput};
+
+    % Legend
+    \matrix [draw=textmuted, rounded corners, fill=white, below left] at (10, 5) {
+      \fill[secondary] (0,0) rectangle (0.4,0.3); & \node {Legacy System}; \\
+      \fill[primary] (0,0) rectangle (0.4,0.3); & \node {Nova (Read)}; \\
+      \fill[accent] (0,0) rectangle (0.4,0.3); & \node {Nova (Write)}; \\
+    };
+
+\end{tikzpicture}
+\end{center}
+
+\end{document}

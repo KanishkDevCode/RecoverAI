@@ -1,0 +1,115 @@
+% ============================================================
+% SECTION 21 — THE POLICY ENGINE
+% ============================================================
+
+\section{The Policy Engine}
+
+\begin{tcolorbox}[summarybox={\iconShield[1.5] Deterministic Business Logic}]
+\color{textdark}
+The Policy Engine (\filepath{app/policy/rules.py}) is the true decision-maker in RecoverAI V2. While the LLM provides a "recommended action," it is treated strictly as an untrusted suggestion. The Policy Engine evaluates that suggestion against hard, mathematical business rules and risk thresholds.
+
+If the LLM recommends an action that violates a policy (either due to a hallucination, prompt injection, or simply a lack of business context), the Policy Engine mathematically \textbf{downgrades} the action to a safe fallback.
+\end{tcolorbox}
+
+\vspace{0.8cm}
+
+% --- THE EVALUATION HIERARCHY ---
+\subsection{The Evaluation Hierarchy}
+
+The engine evaluates rules in a strict, descending hierarchy. A failure at any higher level immediately terminates the evaluation and forces a downgrade.
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=0.8cm,
+    rule/.style={rectangle, draw=primary, thick, fill=bglight, minimum width=6cm, minimum height=0.8cm, font=\small\bfseries},
+    arrow/.style={-{Stealth[scale=1.1]}, thick, draw=textdark}
+]
+
+    \node[rectangle, draw=textdark, thick, dashed, minimum width=6cm, minimum height=0.8cm, font=\small] (llm) {LLM Recommendation: \code{RETRY\_PAYMENT}};
+
+    \node[rule, below=0.8cm of llm] (r1) {1. Global Retry Budget Check};
+    \node[rule, below=of r1] (r2) {2. Financial Amount Thresholds};
+    \node[rule, below=of r2] (r3) {3. Absolute Risk Blocklist};
+    
+    \node[rectangle, draw=success, thick, fill=success!10, below=1cm of r3, minimum width=6cm, minimum height=0.8cm, font=\small\bfseries] (pass) {Final Action: \code{RETRY\_PAYMENT}};
+    
+    \node[rectangle, draw=danger, thick, fill=danger!10, right=1.5cm of r2, minimum width=3.5cm, minimum height=0.8cm, font=\small\bfseries, align=center] (fail) {Downgrade to\\ \code{STOP\_AUTOMATION}};
+
+    \draw[arrow] (llm) -- (r1);
+    \draw[arrow] (r1) -- (r2);
+    \draw[arrow] (r2) -- (r3);
+    \draw[arrow] (r3) -- (pass);
+    
+    \draw[arrow, draw=danger] (r1.east) -| (fail.north);
+    \draw[arrow, draw=danger] (r2.east) -- (fail.west);
+    \draw[arrow, draw=danger] (r3.east) -| (fail.south);
+
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.8cm}
+
+% --- RULE DEFINITIONS ---
+\subsection{Rule Definitions}
+
+\subsubsection{Rule 1: Global Retry Budget}
+The system enforces a hard limit on how many times a transaction can be retried (\code{MAX\_RETRIES}, default 2).
+\begin{itemize}
+    \item \textbf{Logic:} If \code{attempt\_count $\ge$ MAX\_RETRIES}, the engine forces \code{STOP\_AUTOMATION}.
+    \item \textbf{Why:} Prevents infinite retry loops and runaway gateway fees. The LLM does not know how many times the system has already retried; the Policy Engine tracks this via the database.
+\end{itemize}
+
+\vspace{0.4cm}
+
+\subsubsection{Rule 2: Financial Amount Thresholds}
+The system enforces a maximum automatic retry limit (\code{MAX\_AUTO\_ACTION\_AMOUNT}, default \$50.00 / \code{5000} minor units).
+\begin{itemize}
+    \item \textbf{Logic:} If the transaction \code{amount > 5000} AND the LLM recommends \code{RETRY\_PAYMENT}, the engine downgrades the action to \code{CREATE\_ESCALATION} (flagging it for human review).
+    \item \textbf{Why:} High-value transactions pose a higher risk of chargebacks or customer anger if retried aggressively.
+\end{itemize}
+
+\vspace{0.4cm}
+
+\subsubsection{Rule 3: Absolute Risk Blocklist}
+Certain gateway failure codes indicate that retrying is mathematically impossible or legally risky.
+\begin{itemize}
+    \item \textbf{Logic:} If \code{failure\_reason} is in \code{["fraud\_suspected", "stolen\_card", "account\_closed"]}, the engine forces \code{STOP\_AUTOMATION}.
+    \item \textbf{Why:} If an attacker uses Prompt Injection to convince the LLM to retry a stolen card, this rule acts as the final deterministic blockade.
+\end{itemize}
+
+\vspace{0.8cm}
+
+% --- THE ENGINE IMPLEMENTATION ---
+\subsection{Engine Implementation}
+
+\begin{tcolorbox}[codebox={Policy Evaluation (\filepath{app/policy/rules.py})}]
+\begin{lstlisting}[language=Python]
+def evaluate_action(
+    transaction: Transaction,
+    llm_recommendation: str,
+    attempt_count: int
+) -> str:
+    # 1. Start with the LLM's suggestion
+    action = llm_recommendation
+    
+    # 2. Rule 1: Budget
+    if attempt_count >= settings.MAX_RETRIES:
+        return "STOP_AUTOMATION"
+        
+    # 3. Rule 2: Amount Threshold
+    if action == "RETRY_PAYMENT" and transaction.amount > settings.MAX_AUTO_ACTION_AMOUNT:
+        return "CREATE_ESCALATION"
+        
+    # 4. Rule 3: Risk Blocklist
+    fatal_codes = ["fraud", "stolen_card", "lost_card"]
+    if transaction.failure_reason in fatal_codes:
+        return "STOP_AUTOMATION"
+        
+    # 5. Passed all rules
+    return action
+\end{lstlisting}
+\end{tcolorbox}
+
+\begin{tcolorbox}[successbox={Deterministic Safety}]
+By isolating the non-deterministic AI (LLM) behind a wall of deterministic Python (\code{if/else} statements), the system guarantees that business rules are always obeyed, satisfying compliance and security requirements.
+\end{tcolorbox}
