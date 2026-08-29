@@ -81,14 +81,14 @@ In simple terms, here is what happens when a payment fails and RecoverAI process
 ]
 
     \node[stepbox] (cust) {Customer Attempts Payment};
-    \node[step, below=of cust] (fail) {Payment Fails};
-    \node[step, below=of fail] (ingest) {RecoverAI Ingests Transaction};
-    \node[step, below=of ingest] (ml) {ML Model Predicts Recovery Probability};
-    \node[step, below=of ml] (llm) {LLM Agent Diagnoses Failure};
-    \node[step, below=of llm] (policy) {Policy Engine Evaluates Safety};
-    \node[step, below=of policy] (guard) {ExecutionGuard Validates Invariants};
-    \node[step, below=of guard] (gateway) {Gateway Executes Recovery Action};
-    \node[step, below=of gateway] (verify) {Verification \& Final State};
+    \node[stepbox, below=of cust] (fail) {Payment Fails};
+    \node[stepbox, below=of fail] (ingest) {RecoverAI Ingests Transaction};
+    \node[stepbox, below=of ingest] (ml) {ML Model Predicts Recovery Probability};
+    \node[stepbox, below=of ml] (llm) {LLM Agent Diagnoses Failure};
+    \node[stepbox, below=of llm] (policy) {Policy Engine Evaluates Safety};
+    \node[stepbox, below=of policy] (guard) {ExecutionGuard Validates Invariants};
+    \node[stepbox, below=of guard] (gateway) {Gateway Executes Recovery Action};
+    \node[stepbox, below=of gateway] (verify) {Verification \& Final State};
 
     \draw[arrow] (cust) -- (fail);
     \draw[arrow] (fail) -- (ingest);

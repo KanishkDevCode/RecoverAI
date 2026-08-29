@@ -28,8 +28,8 @@ The ML pipeline is defined in \filepath{app/ml/model.py} and consists of a featu
 ]
 
     \node[data] (db) {Transaction\\JSON};
-    \node[step, right=of db] (feat) {Feature\\Extractor};
-    \node[step, right=of feat] (scaler) {Standard\\Scaler};
+    \node[stepbox, right=of db] (feat) {Feature\\Extractor};
+    \node[stepbox, right=of feat] (scaler) {Standard\\Scaler};
     \node[model, right=of scaler] (rf) {RandomForest\\Classifier};
     
     \node[rectangle, draw=success, thick, fill=success!10, right=1.5cm of rf, minimum width=2cm, minimum height=1cm, rounded corners=4pt, font=\small\bfseries] (score) {Score: 0.85};

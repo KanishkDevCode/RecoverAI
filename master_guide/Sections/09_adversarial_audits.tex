@@ -85,7 +85,7 @@ To fix this, a highly targeted patch (Batch 5.3.1) was applied without modifying
 ]
 
     \node[stepbox] (fail) {Webhook Task Fails};
-    \node[step, below=of fail] (inc) {\code{retry\_count += 1} \& \code{last\_attempt\_at = NOW()}};
+    \node[stepbox, below=of fail] (inc) {\code{retry\_count += 1} \& \code{last\_attempt\_at = NOW()}};
     
     \node[rectangle, draw=danger, thick, fill=danger!10, right=1.5cm of inc, minimum width=2.5cm, minimum height=0.8cm, rounded corners=4pt, font=\small, align=center] (perm) {Terminal State\\(\code{FAILED\_PERMANENTLY})};
     
