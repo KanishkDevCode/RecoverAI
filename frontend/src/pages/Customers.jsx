@@ -42,7 +42,7 @@ export default function Customers() {
   }
 
   return (
-    <div className="payments-page">
+    <div className="payments-page page-enter">
       <div className="page-header">
         <h1>Customers</h1>
         <button className="btn-outline" onClick={loadData}>
@@ -51,7 +51,10 @@ export default function Customers() {
       </div>
 
       {customers.length === 0 ? (
-        <div className="empty-state"><p>No customers found.</p></div>
+        <div className="empty-state">
+          <p className="empty-state-title">No customers found</p>
+          <p className="empty-state-description">Customers will appear here once they process their first payment.</p>
+        </div>
       ) : (
         <div className="payments-table-wrap">
           <table className="payments-table">
@@ -65,7 +68,7 @@ export default function Customers() {
             </thead>
             <tbody>
               {customers.map((c) => (
-                <tr key={c.customer_id} className="clickable-row">
+                <tr key={c.customer_id}>
                   <td className="font-semibold">{c.customer_id}</td>
                   <td>{c.payments}</td>
                   <td>₹{c.revenue?.toLocaleString()}</td>

@@ -54,24 +54,25 @@ export default function PaymentProcessing() {
       return null;
     }
     
-    let color = 'text-gray-400';
+    let dotClass = 'error';
+    let labelClass = 'disconnected';
     let label = 'Disconnected';
     
-    if (wsStatus === 'connecting') { color = 'text-warning'; label = 'Connecting...'; }
-    if (wsStatus === 'connected') { color = 'text-success'; label = 'Live Connection'; }
-    if (wsStatus === 'reconnecting') { color = 'text-warning'; label = 'Reconnecting...'; }
-    if (wsStatus === 'error' || wsStatus === 'disconnected') { color = 'text-danger'; label = 'Connection Lost (Polling Fallback)'; }
+    if (wsStatus === 'connecting') { dotClass = 'connecting'; labelClass = 'connecting'; label = 'Connecting...'; }
+    if (wsStatus === 'connected') { dotClass = 'connected'; labelClass = 'connected'; label = 'Live Connection'; }
+    if (wsStatus === 'reconnecting') { dotClass = 'connecting'; labelClass = 'connecting'; label = 'Reconnecting...'; }
+    if (wsStatus === 'error' || wsStatus === 'disconnected') { dotClass = 'error'; labelClass = 'error'; label = 'Connection Lost'; }
 
     return (
-      <div className={`ws-status-indicator text-xs font-semibold uppercase tracking-wider mb-2 flex items-center justify-center gap-1 ${color}`}>
-        <div className={`w-2 h-2 rounded-full ${wsStatus === 'connected' ? 'bg-green-500 animate-pulse' : wsStatus === 'connecting' || wsStatus === 'reconnecting' ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'}`}></div>
-        {label}
+      <div className="ws-status-container">
+        <div className={`ws-status-dot ${dotClass}`}></div>
+        <span className={`ws-status-label ${labelClass}`}>{label}</span>
       </div>
     );
   };
 
   return (
-    <div className="processing-page">
+    <div className="processing-page page-enter">
       <div className="processing-card">
         {/* Header */}
         <div className="processing-header">
@@ -192,8 +193,9 @@ export default function PaymentProcessing() {
               if (thisIdx > lastCompletedIdx + 1) return null;
             }
 
+            const stepIndex = PIPELINE_STEPS.indexOf(step);
             return (
-              <div key={step.key} className={`pipeline-step ${isCompleted ? 'completed' : 'pending'}`}>
+              <div key={step.key} className={`pipeline-step ${isCompleted ? 'completed' : 'pending'} ${isCompleted ? 'step-enter' : ''}`} style={isCompleted ? { animationDelay: `${stepIndex * 0.05}s` } : undefined}>
                 {getStepIcon(step, isCompleted)}
                 <div className="step-content">
                   <span className="step-label">{step.label}</span>

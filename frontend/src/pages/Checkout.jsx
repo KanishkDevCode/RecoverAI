@@ -104,7 +104,7 @@ export default function Checkout() {
   };
 
   return (
-    <div className="checkout-page">
+    <div className="checkout-page page-enter">
       <div className="checkout-grid">
         {/* LEFT: Customer Mode */}
         <div className="payment-panel">
@@ -163,12 +163,12 @@ export default function Checkout() {
             </div>
           )}
 
-          <div className="form-footer mt-4">
+          <div className="form-footer">
             <button className="pay-button" onClick={handleLivePayment} disabled={isSubmitting}>
               {isSubmitting ? 'Processing...' : `Pay ₹${total.toLocaleString()}`}
             </button>
-            <div className="secure-line text-center mt-2">
-              <Lock size={14} className="inline mr-1" /> 
+            <div className="dev-security-note">
+              <Lock size={14} /> 
               <span>Mock Gateway — no real money movement</span>
             </div>
           </div>
@@ -176,17 +176,17 @@ export default function Checkout() {
 
         {/* RIGHT: Developer Mode */}
         <div className="dev-panel">
-          <div className="dev-mode-header cursor-pointer" onClick={() => setDevMode(!devMode)}>
-            <div className="flex items-center gap-2">
-              <TerminalSquare size={20} className={devMode ? 'text-primary' : 'text-gray-400'} />
-              <h2 className="panel-title mb-0">Developer / Test Mode</h2>
+          <div className="dev-mode-header" onClick={() => setDevMode(!devMode)}>
+            <div className="dev-mode-header-left">
+              <TerminalSquare size={20} className={devMode ? 'text-primary' : ''} />
+              <h2 className="panel-title" style={{ marginBottom: 0 }}>Developer / Test Mode</h2>
             </div>
-            <span className="text-gray-400 text-sm">{devMode ? '▼' : '▶'} Click to expand</span>
+            <span className="dev-mode-toggle-label">{devMode ? '▼' : '▶'} Click to expand</span>
           </div>
 
           {devMode && (
-            <div className="dev-mode-content mt-4 border-t border-gray-800 pt-4">
-              <h3 className="text-sm font-semibold mb-2 text-gray-300 uppercase tracking-wider">Quick Scenarios</h3>
+            <div className="dev-mode-content">
+              <h3 className="dev-section-title">Quick Scenarios</h3>
               <div className="dev-presets-grid">
                 {[
                   { key: 'safe_recovery', label: 'Safe Recovery' },
@@ -209,23 +209,23 @@ export default function Checkout() {
                 ))}
               </div>
 
-              <div className="custom-scenario-box mt-6">
-                <h3 className="text-sm font-semibold mb-3 text-gray-300 uppercase tracking-wider">Custom Scenario</h3>
+              <div className="custom-scenario-box">
+                <h3 className="dev-section-title">Custom Scenario</h3>
                 
                 <div className="form-row">
                   <div className="form-group">
-                    <label className="form-label text-xs">Amount (₹)</label>
+                    <label className="form-label">Amount (₹)</label>
                     <input className="form-input dev-input" type="number" value={testAmount} onChange={e => {setTestAmount(e.target.value); setActivePreset(null);}} />
                   </div>
                   <div className="form-group">
-                    <label className="form-label text-xs">Retry Count</label>
+                    <label className="form-label">Retry Count</label>
                     <input className="form-input dev-input" type="number" value={testRetryCount} onChange={e => {setTestRetryCount(e.target.value); setActivePreset(null);}} />
                   </div>
                 </div>
 
-                <div className="form-section mt-3">
-                  <label className="form-label text-xs">Failure Code</label>
-                  <select className="form-input dev-input select" value={testFailureCode} onChange={e => {setTestFailureCode(e.target.value); setActivePreset(null);}}>
+                <div className="form-section" style={{ marginTop: '0.75rem' }}>
+                  <label className="form-label">Failure Code</label>
+                  <select className="form-input dev-input" value={testFailureCode} onChange={e => {setTestFailureCode(e.target.value); setActivePreset(null);}}>
                     <option value="insufficient_funds">insufficient_funds</option>
                     <option value="bank_timeout">bank_timeout</option>
                     <option value="fraud_suspected">fraud_suspected</option>
@@ -234,8 +234,8 @@ export default function Checkout() {
                   </select>
                 </div>
 
-                <div className="form-section mt-3">
-                  <label className="form-label text-xs">Failure Reason</label>
+                <div className="form-section" style={{ marginTop: '0.75rem' }}>
+                  <label className="form-label">Failure Reason</label>
                   <textarea 
                     className="form-input dev-input" 
                     rows="3" 
@@ -244,12 +244,12 @@ export default function Checkout() {
                   />
                 </div>
 
-                <div className="form-section mt-3 opacity-60">
-                  <label className="form-label text-xs">Transaction ID</label>
+                <div className="form-section" style={{ marginTop: '0.75rem', opacity: 0.6 }}>
+                  <label className="form-label">Transaction ID</label>
                   <input className="form-input dev-input" disabled value={activePreset === 'duplicate' ? 'txn_duplicate_123' : 'Auto-generated'} />
                 </div>
                 
-                <button className="dev-test-button mt-4" onClick={handleTestPayment} disabled={isSubmitting}>
+                <button className="dev-test-button" onClick={handleTestPayment} disabled={isSubmitting}>
                   Run Test Payment
                 </button>
               </div>

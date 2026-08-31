@@ -59,7 +59,7 @@ export default function Payments() {
   }
 
   return (
-    <div className="payments-page">
+    <div className="payments-page page-enter">
       <div className="page-header">
         <h1>Payments</h1>
         <button className="btn-primary" onClick={() => navigate('/checkout')}>New Payment</button>
@@ -86,7 +86,8 @@ export default function Payments() {
       {/* Table */}
       {filtered.length === 0 ? (
         <div className="empty-state">
-          <p>No payments found. Process a payment from the checkout page.</p>
+          <p className="empty-state-title">No payments found</p>
+          <p className="empty-state-description">Process a payment from the checkout page or adjust your search filters.</p>
         </div>
       ) : (
         <div className="payments-table-wrap">
@@ -103,7 +104,7 @@ export default function Payments() {
             <tbody>
               {filtered.map((p) => (
                 <tr key={p.transaction_id} onClick={() => navigate(`/payments/${p.transaction_id}`)} className="clickable-row">
-                  <td className="mono">{p.transaction_id.substring(0, 20)}...</td>
+                  <td className="mono">{p.transaction_id.substring(0, 16)}...</td>
                   <td>₹{p.amount?.toLocaleString()}</td>
                   <td>
                     <span className={`status-badge ${p.original_status === 'success' ? 'badge-success' : 'badge-danger'}`}>

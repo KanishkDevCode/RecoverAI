@@ -23,7 +23,7 @@ export default function Settings() {
   };
 
   return (
-    <div className="settings-page">
+    <div className="settings-page page-enter">
       <div className="page-header">
         <h1>Settings</h1>
       </div>

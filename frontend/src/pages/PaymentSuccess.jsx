@@ -18,7 +18,7 @@ export default function PaymentSuccess() {
   };
 
   return (
-    <div className="result-page">
+    <div className="result-page page-enter">
       <div className="result-card">
         <div className="result-icon success">
           <CheckCircle2 size={56} />
@@ -39,12 +39,12 @@ export default function PaymentSuccess() {
           </div>
         )}
 
-        <div className="receipt-details">
-          <div className="receipt-row"><span>Amount</span><span className="font-semibold">₹{transaction?.amount.toLocaleString()}</span></div>
-          <div className="receipt-row"><span>Transaction ID</span><span className="mono">{transaction?.id}</span></div>
-          <div className="receipt-row"><span>Date</span><span>{new Date().toLocaleDateString()}</span></div>
-          <div className="receipt-row"><span>Payment Method</span><span className="uppercase">{transaction?.payment_method}</span></div>
-          <div className="receipt-row">
+        <div className="result-details">
+          <div className="result-row"><span>Amount</span><span className="font-semibold">₹{transaction?.amount.toLocaleString()}</span></div>
+          <div className="result-row"><span>Transaction ID</span><span className="mono">{transaction?.id}</span></div>
+          <div className="result-row"><span>Date</span><span>{new Date().toLocaleDateString()}</span></div>
+          <div className="result-row"><span>Payment Method</span><span className="uppercase">{transaction?.payment_method}</span></div>
+          <div className="result-row">
             <span>Gateway Executions</span>
             <span className="mono font-semibold">
               {paymentState === 'succeeded_normal' ? '1' : 

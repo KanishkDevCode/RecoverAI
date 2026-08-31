@@ -27,9 +27,9 @@ export default function PaymentFailed() {
   };
 
   return (
-    <div className="result-page">
+    <div className="result-page page-enter">
       <div className="result-card">
-        <div className={`result-icon ${isUnknown ? 'unknown text-warning' : (wasMessageSent || wasWaiting) ? 'text-primary' : 'fail'}`}>
+        <div className={`result-icon ${isUnknown ? 'unknown' : (wasMessageSent || wasWaiting) ? '' : 'fail'}`} style={isUnknown || wasMessageSent || wasWaiting ? { color: isUnknown ? 'var(--color-warning)' : 'var(--color-primary)' } : undefined}>
           {isUnknown || wasMessageSent || wasWaiting ? <AlertTriangle size={56} /> : <XCircle size={56} />}
         </div>
         <h1 className="result-title">

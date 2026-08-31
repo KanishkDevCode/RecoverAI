@@ -61,7 +61,7 @@ export default function Overview() {
   };
 
   return (
-    <div className="overview-page" style={{ maxWidth: '1000px' }}>
+    <div className="overview-page page-enter" style={{ maxWidth: '1000px' }}>
       <div className="page-header">
         <h1>Overview</h1>
         <button className="btn-outline" onClick={loadData}>
@@ -105,13 +105,16 @@ export default function Overview() {
       <div className="recent-section">
         <h2>Recent Payments</h2>
         {recentPayments.length === 0 ? (
-          <div className="empty-state"><p>No payments yet.</p></div>
+          <div className="empty-state">
+            <p className="empty-state-title">No payments yet</p>
+            <p className="empty-state-description">Process a test payment from the Checkout page to see data here.</p>
+          </div>
         ) : (
           <div className="payments-table-wrap">
             <table className="payments-table">
               <thead>
                 <tr>
-                  <th>TXN</th>
+                  <th>Transaction</th>
                   <th>Customer</th>
                   <th>Amount</th>
                   <th>Status</th>
@@ -126,8 +129,8 @@ export default function Overview() {
                       className="clickable-row" 
                       onClick={() => navigate(`/payments/${txn.transaction_id}`)}
                     >
-                      <td className="mono" style={{ width: '120px' }}>
-                        {txn.transaction_id.substring(0, 12)}...
+                      <td className="mono" style={{ width: '140px' }}>
+                        {txn.transaction_id.substring(0, 16)}...
                       </td>
                       <td>{txn.customer_id}</td>
                       <td>₹{txn.amount?.toLocaleString()}</td>

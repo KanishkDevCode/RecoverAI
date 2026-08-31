@@ -54,7 +54,7 @@ export default function PaymentDetails() {
   const finalStatus = details.original_status === 'success' ? 'SUCCEEDED' : (recovery?.outcome_status || 'FAILED');
 
   return (
-    <div className="detail-page">
+    <div className="detail-page page-enter">
       <button className="back-link" onClick={() => navigate('/payments')}>
         <ArrowLeft size={16} /> Back to Payments
       </button>
@@ -140,7 +140,7 @@ export default function PaymentDetails() {
 
         {/* RecoverAI Section */}
         {recovery && (
-          <div className="detail-section mt-4">
+          <div className="detail-section" style={{ marginTop: '1rem' }}>
             <h3>RecoverAI Recovery</h3>
             <div className="detail-grid">
               <div className="detail-item">
@@ -171,7 +171,7 @@ export default function PaymentDetails() {
 
         {/* Audit Trail */}
         {auditTrail.length > 0 && (
-          <div className="detail-section mt-4">
+          <div className="detail-section" style={{ marginTop: '1rem' }}>
             <h3>Audit Trail</h3>
             <div className="audit-timeline">
               {auditTrail.map((entry, i) => (

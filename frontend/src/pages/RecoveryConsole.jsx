@@ -44,7 +44,7 @@ export default function RecoveryConsole() {
   }
 
   return (
-    <div className="recovery-page">
+    <div className="recovery-page page-enter">
       <div className="page-header">
         <h1>Recovery Console</h1>
         <button className="btn-outline" onClick={loadData}>
@@ -54,7 +54,7 @@ export default function RecoveryConsole() {
 
       {/* Metrics Cards */}
       {metrics && (
-        <div className="metrics-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+        <div className="metrics-grid">
           <div className="metric-card">
             <div className="metric-icon"><Activity size={20} /></div>
             <div className="metric-body">
@@ -104,7 +104,10 @@ export default function RecoveryConsole() {
       <div className="recent-section">
         <h2>Recent Recovery Attempts</h2>
         {recentAttempts.length === 0 ? (
-          <div className="empty-state"><p>No recovery attempts yet.</p></div>
+          <div className="empty-state">
+            <p className="empty-state-title">No recovery attempts yet</p>
+            <p className="empty-state-description">Failed payments that pass ML analysis will appear here.</p>
+          </div>
         ) : (
           <div className="payments-table-wrap">
             <table className="payments-table">
@@ -120,7 +123,7 @@ export default function RecoveryConsole() {
               <tbody>
                 {recentAttempts.map((a) => (
                   <tr key={a.transaction_id}>
-                    <td className="mono">{a.transaction_id?.substring(0, 20)}...</td>
+                    <td className="mono">{a.transaction_id?.substring(0, 16)}...</td>
                     <td>₹{a.amount?.toLocaleString()}</td>
                     <td className="truncate" title={a.agent_diagnosis || 'N/A'}>{a.agent_diagnosis || '—'}</td>
                     <td>
