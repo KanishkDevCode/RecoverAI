@@ -8,13 +8,13 @@ const WS_BASE = import.meta.env.VITE_WS_BASE_URL || 'ws://127.0.0.1:8000/api/v1'
  * @param {function} onError - called on error
  * @param {function} onClose - called on close
  */
-export function connectRecoveryStream(transactionId, { onEvent, onError, onClose }) {
+export function connectRecoveryStream(transactionId, { onOpen, onEvent, onError, onClose }) {
   const apiKey = 'test_secret_key_123'; // Using same default key as api.js
   const url = `${WS_BASE}/ws/recovery/${transactionId}?api_key=${apiKey}`;
   const socket = new WebSocket(url);
 
   socket.onopen = () => {
-    /* connection established */
+    if (onOpen) onOpen();
   };
 
   socket.onmessage = (msg) => {

@@ -122,11 +122,18 @@ export default function RecoveryConsole() {
                   <tr key={a.transaction_id}>
                     <td className="mono">{a.transaction_id?.substring(0, 20)}...</td>
                     <td>₹{a.amount?.toLocaleString()}</td>
-                    <td className="truncate">{a.agent_diagnosis || '—'}</td>
-                    <td>{a.policy_action || '—'}</td>
+                    <td className="truncate" title={a.agent_diagnosis || 'N/A'}>{a.agent_diagnosis || '—'}</td>
                     <td>
-                      <span className={`status-badge ${a.outcome === 'SUCCESS' ? 'badge-success' : 'badge-danger'}`}>
-                        {a.outcome === 'SUCCESS' ? 'Recovered' : a.outcome}
+                      <span className={a.policy_action === 'ALLOWED' ? 'text-success' : a.policy_action === 'DENIED' ? 'text-danger' : ''}>
+                        {a.policy_action || '—'}
+                      </span>
+                    </td>
+                    <td>
+                      <span className={`status-badge ${
+                        a.recovery_status_attempt === 'SUCCESS' || a.recovery_status_attempt === 'SUCCEEDED' ? 'badge-success' : 
+                        a.recovery_status_attempt ? 'badge-danger' : 'badge-neutral'
+                      }`}>
+                        {a.recovery_status_attempt === 'SUCCESS' || a.recovery_status_attempt === 'SUCCEEDED' ? 'Recovered' : (a.recovery_status_attempt || 'Pending')}
                       </span>
                     </td>
                   </tr>

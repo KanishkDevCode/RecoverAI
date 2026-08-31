@@ -286,7 +286,7 @@ def test_10_escalated_unknown_failed_block(pg_engine):
         
     sess.close()
 def test_11_webhook_retry_concurrency(pg_engine):
-    "\""11. Webhook retry limits are enforced concurrently."\""
+    """11. Webhook retry limits are enforced concurrently."""
     from unittest.mock import patch
     from app.worker.tasks import process_webhook, MAX_WEBHOOK_RETRIES
     Session = sessionmaker(bind=pg_engine)

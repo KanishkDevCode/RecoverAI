@@ -11,6 +11,7 @@ from app.services.reconciliation import (
     reconcile_stuck_refunds,
     reconcile_pending_webhooks
 )
+from app.services.money import to_major_units
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ def process_orchestrator(self, transaction_id: str):
         incoming = TransactionIncoming(
             id=txn.id,
             customer_id=txn.customer_id or "unknown",
-            amount=txn.amount,  
+            amount=to_major_units(txn.amount),  
             currency=txn.currency,
             payment_status=txn.status,
             payment_method="card", 

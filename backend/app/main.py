@@ -4,7 +4,7 @@ from app.database import engine, Base, SessionLocal
 from app.api.router import router as api_router
 from app.api.middleware import RequestIDMiddleware
 from app.config import settings
-from app.services.logger import setup_logging
+from app.core.logging import setup_logging
 import logging
 from contextlib import asynccontextmanager
 
@@ -39,9 +39,22 @@ app.add_middleware(
 
 app.add_middleware(RequestIDMiddleware)
 
+from fastapi import Request
+from fastapi.responses import JSONResponse
+from app.core.logging import logger, request_id_var
+import traceback
+
 app.include_router(api_router)
 
-@app.get("/health")
-def health_check():
-    """Basic health check endpoint."""
-    return {"status": "ok", "message": "RecoverAI backend is running."}
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    req_id = request_id_var.get() or "unknown"
+    logger.error(
+        f"Unhandled exception: {str(exc)}", 
+        exc_info=True,
+        extra={"extra_context": {"request_path": request.url.path, "request_method": request.method}}
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error", "request_id": req_id}
+    )

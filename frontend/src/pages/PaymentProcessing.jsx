@@ -20,7 +20,7 @@ function getStepIcon(step, completed) {
 
 export default function PaymentProcessing() {
   const navigate = useNavigate();
-  const { paymentState, transaction, recoveryEvents, recoveryResult, error } = usePayment();
+  const { paymentState, transaction, recoveryEvents, recoveryResult, error, wsStatus } = usePayment();
 
   // Build a set of completed event types
   const completedTypes = new Set(recoveryEvents.map(e => e.event_type));
@@ -49,11 +49,33 @@ export default function PaymentProcessing() {
   const gatewayData = getEventData('GATEWAY_RESULT');
   const failData = getEventData('PAYMENT_FAILED');
 
+  const renderWsStatus = () => {
+    if (paymentState === 'succeeded_normal' || paymentState === 'succeeded_recovered' || paymentState === 'recovery_failed' || paymentState === 'unknown' || paymentState === 'error') {
+      return null;
+    }
+    
+    let color = 'text-gray-400';
+    let label = 'Disconnected';
+    
+    if (wsStatus === 'connecting') { color = 'text-warning'; label = 'Connecting...'; }
+    if (wsStatus === 'connected') { color = 'text-success'; label = 'Live Connection'; }
+    if (wsStatus === 'reconnecting') { color = 'text-warning'; label = 'Reconnecting...'; }
+    if (wsStatus === 'error' || wsStatus === 'disconnected') { color = 'text-danger'; label = 'Connection Lost (Polling Fallback)'; }
+
+    return (
+      <div className={`ws-status-indicator text-xs font-semibold uppercase tracking-wider mb-2 flex items-center justify-center gap-1 ${color}`}>
+        <div className={`w-2 h-2 rounded-full ${wsStatus === 'connected' ? 'bg-green-500 animate-pulse' : wsStatus === 'connecting' || wsStatus === 'reconnecting' ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'}`}></div>
+        {label}
+      </div>
+    );
+  };
+
   return (
     <div className="processing-page">
       <div className="processing-card">
         {/* Header */}
         <div className="processing-header">
+          {renderWsStatus()}
           {paymentState === 'processing' && (
             <>
               <Loader2 size={40} className="spin" />

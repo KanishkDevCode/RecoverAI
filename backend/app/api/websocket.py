@@ -12,8 +12,8 @@ async def websocket_recovery(
     transaction_id: str,
     api_key: str = Depends(get_ws_api_key)
 ):
-    await websocket.accept()
     queue = await event_bus.subscribe(transaction_id)
+    await websocket.accept()
     try:
         while True:
             event = await queue.get()

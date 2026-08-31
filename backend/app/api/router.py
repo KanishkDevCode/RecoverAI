@@ -1,7 +1,10 @@
 from fastapi import APIRouter
-from app.api import payments, recovery, refunds, transactions, dashboard, customers, audit, websocket, system, webhooks
+from app.api import payments, recovery, refunds, transactions, dashboard, customers, audit, websocket, system, webhooks, health, metrics
 
 router = APIRouter(prefix="/api/v1")
+
+router.include_router(health.router, prefix="/health")
+router.include_router(metrics.router, prefix="/metrics")
 
 router.include_router(system.router, tags=["System"])
 router.include_router(payments.router, tags=["Payments"])

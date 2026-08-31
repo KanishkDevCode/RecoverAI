@@ -40,6 +40,22 @@ class Settings:
             self.PENDING_ATTEMPT_TIMEOUT_SECONDS = int(pending_str)
         except ValueError:
             self.PENDING_ATTEMPT_TIMEOUT_SECONDS = 300
+            
+        # Observability Configuration
+        self.LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+        self.SERVICE_NAME = os.getenv("SERVICE_NAME", "recoverai-api")
+        
+        stuck_str = os.getenv("STUCK_EXECUTION_THRESHOLD_SECONDS", "300")
+        try:
+            self.STUCK_EXECUTION_THRESHOLD_SECONDS = int(stuck_str)
+        except ValueError:
+            self.STUCK_EXECUTION_THRESHOLD_SECONDS = 300
+            
+        obs_key = os.getenv("OBSERVABILITY_API_KEY")
+        if self.ENVIRONMENT == "development" and not obs_key:
+            self.OBSERVABILITY_API_KEY = "test_obs_key_123"
+        else:
+            self.OBSERVABILITY_API_KEY = obs_key
 
         self.validate()
 
@@ -53,6 +69,9 @@ class Settings:
                 
             if not self.WEBHOOK_SECRET:
                 raise ValueError("SECURITY ERROR: WEBHOOK_SECRET must be set in production.")
+                
+            if not self.OBSERVABILITY_API_KEY:
+                raise ValueError("SECURITY ERROR: OBSERVABILITY_API_KEY must be set in production.")
             
             if not os.getenv("CELERY_BROKER_URL"):
                 raise ValueError("SECURITY ERROR: CELERY_BROKER_URL must be explicitly set in production.")

@@ -42,24 +42,48 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* Backend Connection */}
+        {/* System Status */}
         <div className="settings-card">
-          <h3>Backend Connection</h3>
+          <h3>System Status</h3>
           <div className="settings-row">
-            <span>Status</span>
+            <span>API Server</span>
             {loading ? (
               <Loader2 size={16} className="spin" />
             ) : health ? (
-              <span className="connection-status online">
-                <CheckCircle2 size={14} /> Online
+              <span className={`connection-status ${health.status === 'ready' ? 'online' : 'offline'}`}>
+                {health.status === 'ready' ? <CheckCircle2 size={14} /> : <XCircle size={14} />} {health.status === 'ready' ? 'Healthy' : 'Unavailable'}
               </span>
             ) : (
-              <span className="connection-status offline">
-                <XCircle size={14} /> Offline
-              </span>
+              <span className="connection-status offline"><XCircle size={14} /> Offline</span>
             )}
           </div>
-          <button className="btn-outline btn-sm" onClick={checkHealth}>Check Connection</button>
+          
+          <div className="settings-row">
+            <span>Database (PostgreSQL)</span>
+            {loading ? (
+              <Loader2 size={16} className="spin" />
+            ) : health ? (
+              <span className={`connection-status ${health.database === 'healthy' ? 'online' : 'offline'}`}>
+                {health.database === 'healthy' ? <CheckCircle2 size={14} /> : <XCircle size={14} />} {health.database === 'healthy' ? 'Connected' : 'Error'}
+              </span>
+            ) : (
+              <span className="connection-status offline"><XCircle size={14} /> Offline</span>
+            )}
+          </div>
+
+          <div className="settings-row">
+            <span>Redis & Workers</span>
+            {loading ? (
+              <Loader2 size={16} className="spin" />
+            ) : health ? (
+              <span className={`connection-status ${health.redis === 'healthy' ? 'online' : 'offline'}`}>
+                {health.redis === 'healthy' ? <CheckCircle2 size={14} /> : <XCircle size={14} />} {health.redis === 'healthy' ? 'Connected' : 'Error'}
+              </span>
+            ) : (
+              <span className="connection-status offline"><XCircle size={14} /> Offline</span>
+            )}
+          </div>
+          <button className="btn-outline btn-sm" onClick={checkHealth}>Refresh Status</button>
         </div>
 
         {/* Recovery Policy */}

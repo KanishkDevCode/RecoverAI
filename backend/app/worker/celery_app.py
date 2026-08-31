@@ -2,6 +2,9 @@ import os
 from celery import Celery
 from app.config import settings
 
+# Import signals to register them with Celery
+import app.worker.signals
+
 celery_app = Celery(
     "recoverai_worker",
     broker=settings.CELERY_BROKER_URL,

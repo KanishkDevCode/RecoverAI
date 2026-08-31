@@ -48,7 +48,11 @@ export function getCustomers() {
 }
 
 export function getHealthCheck() {
-  return fetch(
-    `${API_BASE.replace('/api/v1', '')}/health`,
-  ).then(r => r.json());
+  return fetch(`${API_BASE}/health/ready`).then(async (r) => {
+    // Treat 503 as a valid response format for health checks
+    if (!r.ok && r.status !== 503) {
+      throw new Error('Health check failed');
+    }
+    return r.json();
+  });
 }

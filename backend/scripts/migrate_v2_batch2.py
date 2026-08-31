@@ -1,13 +1,15 @@
-import sqlite3
-import os
 import sys
+import os
+import sqlite3
 
-def run_migration():
-    db_path = os.path.join(os.path.dirname(__file__), '..', 'recoverai.db')
-    print(f"Migrating database at: {db_path}")
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from app.core.logging import logger
 
+def migrate_db(db_path: str):
+    logger.info(f"Migrating database at: {db_path}")
+    
     if not os.path.exists(db_path):
-        print("Database not found. Exiting.")
+        logger.error("Database not found. Exiting.")
         return
 
     conn = sqlite3.connect(db_path)
@@ -15,24 +17,25 @@ def run_migration():
 
     # Add columns to idempotency_records
     columns_to_add = [
-        ("request_hash", "TEXT"),
-        ("response_body", "TEXT"),
-        ("status_code", "INTEGER")
+        ("request_hash", "TEXT", "idempotency_records"),
+        ("response_body", "TEXT", "idempotency_records"),
+        ("status_code", "INTEGER", "idempotency_records")
     ]
 
-    for col_name, col_type in columns_to_add:
+    for col_name, col_type, table in columns_to_add:
         try:
-            cursor.execute(f"ALTER TABLE idempotency_records ADD COLUMN {col_name} {col_type}")
-            print(f"Added column {col_name} to idempotency_records")
+            cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_type}")
+            logger.info(f"Added column {col_name} to {table}")
         except sqlite3.OperationalError as e:
             if "duplicate column name" in str(e).lower():
-                print(f"Column {col_name} already exists. Skipping.")
+                logger.info(f"Column {col_name} already exists. Skipping.")
             else:
-                print(f"Error adding {col_name}: {e}")
+                logger.error(f"Error adding {col_name}: {e}")
 
     conn.commit()
     conn.close()
-    print("Batch 2 Migration complete!")
+    logger.info("Batch 2 Migration complete!")
 
 if __name__ == "__main__":
-    run_migration()
+    db_path = os.getenv("DATABASE_URL", "sqlite:///./recoverai.db").replace("sqlite:///", "")
+    migrate_db(db_path)
