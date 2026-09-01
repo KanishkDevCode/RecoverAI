@@ -35,13 +35,13 @@ def get_metrics(db: Session = Depends(get_db), _: str = Depends(verify_observabi
         
         # 1. Recovery Attempts in UNKNOWN state
         unknown_attempts = db.execute(
-            text("SELECT COUNT(*) FROM recovery_attempts WHERE status = 'UNKNOWN'")
+            text("SELECT COUNT(*) FROM recovery_attempts WHERE outcome_status = 'UNKNOWN'")
         ).scalar()
         metrics["recovery_attempts_unknown"] = unknown_attempts
         
         # 2. Recovery Attempts in ESCALATED state
         escalated_attempts = db.execute(
-            text("SELECT COUNT(*) FROM recovery_attempts WHERE status = 'ESCALATED'")
+            text("SELECT COUNT(*) FROM recovery_attempts WHERE outcome_status = 'ESCALATED'")
         ).scalar()
         metrics["recovery_attempts_escalated"] = escalated_attempts
         
@@ -57,7 +57,7 @@ def get_metrics(db: Session = Depends(get_db), _: str = Depends(verify_observabi
         # Since we might not have a reliable updated_at on recovery_attempts right now, we use created_at
         # A more robust system would track state transition times.
         stuck_attempts = db.execute(
-            text("SELECT COUNT(*) FROM recovery_attempts WHERE status = 'EXECUTING' AND created_at < :threshold"),
+            text("SELECT COUNT(*) FROM recovery_attempts WHERE outcome_status = 'EXECUTING' AND created_at < :threshold"),
             {"threshold": stuck_threshold}
         ).scalar()
         metrics["recovery_attempts_stuck_executing"] = stuck_attempts

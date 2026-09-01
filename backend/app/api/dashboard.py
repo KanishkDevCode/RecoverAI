@@ -20,7 +20,7 @@ def get_dashboard_metrics(db: Session = Depends(get_db), api_key: str = Depends(
     # Calculate recovered revenue (sum of amounts where outcome was SUCCESS)
     recovered_txns = db.query(Transaction).join(
         RecoveryAttempt, Transaction.id == RecoveryAttempt.transaction_id
-    ).filter(RecoveryAttempt.outcome_status == "SUCCESS").all()
+    ).filter(RecoveryAttempt.outcome_status == "SUCCEEDED").all()
     
     total_recovered = sum([to_major_units(t.amount) for t in recovered_txns])
     
@@ -33,9 +33,9 @@ def get_dashboard_metrics(db: Session = Depends(get_db), api_key: str = Depends(
     total_refunds = sum([to_major_units(t.refund_amount) for t in refunded_txns if t.refund_amount])
     
     # Calculate statuses
-    success_count = db.query(RecoveryAttempt).filter(RecoveryAttempt.outcome_status == "SUCCESS").count()
-    escalated_count = db.query(RecoveryAttempt).filter(RecoveryAttempt.outcome_status == "CREATE_ESCALATION").count()
-    stopped_count = db.query(RecoveryAttempt).filter(RecoveryAttempt.outcome_status == "STOP_AUTOMATION").count()
+    success_count = db.query(RecoveryAttempt).filter(RecoveryAttempt.outcome_status == "SUCCEEDED").count()
+    escalated_count = db.query(RecoveryAttempt).filter(RecoveryAttempt.outcome_status == "ESCALATED").count()
+    stopped_count = db.query(RecoveryAttempt).filter(RecoveryAttempt.outcome_status == "STOPPED").count()
     
     # ML and Agent statistics
     # This represents transactions that failed initially, where RecoverAI made decisions
