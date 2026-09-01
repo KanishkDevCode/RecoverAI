@@ -32,15 +32,22 @@ class MockGatewayCelery(GatewayInterface):
 @pytest.fixture(autouse=True)
 def override_gateway(monkeypatch):
     mock = MockGatewayCelery()
+    monkeypatch.setattr("app.gateways.get_gateway", lambda: mock)
     monkeypatch.setattr("app.services.execution_guard.get_gateway", lambda: mock)
     monkeypatch.setattr("app.services.reconciliation.get_gateway", lambda: mock)
+    monkeypatch.setattr("app.worker.tasks.get_gateway", lambda: mock, raising=False)
+    monkeypatch.setattr("app.services.orchestrator.get_gateway", lambda: mock, raising=False)
     return mock
 
 @pytest.fixture(autouse=True)
 def setup_db():
     Base.metadata.create_all(bind=engine)
     yield
-    Base.metadata.drop_all(bind=engine)
+    # Safe cleanup using reversed sorted_tables to respect FKs
+    with engine.connect() as conn:
+        for table in reversed(Base.metadata.sorted_tables):
+            conn.execute(table.delete())
+        conn.commit()
 
 def test_celery_worker_executes_orchestration(override_gateway):
     """1. Celery task executes orchestration."""

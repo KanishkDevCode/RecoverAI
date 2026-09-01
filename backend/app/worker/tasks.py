@@ -64,7 +64,7 @@ def process_webhook(self, event_id: str):
     """
     SAFE TO RETRY. Processes webhooks durably.
     """
-    from datetime import datetime
+    from datetime import datetime, timezone
     from app.models.db_models import WebhookEvent, AuditLog
     
     logger.info(f"Celery processing webhook {event_id}")
@@ -87,14 +87,14 @@ def process_webhook(self, event_id: str):
             return
 
         # Record attempt
-        webhook_event.last_attempt_at = datetime.utcnow()
+        webhook_event.last_attempt_at = datetime.now(timezone.utc)
         db.commit()
 
         transaction_id = webhook_event.transaction_id
         if not transaction_id:
             logger.warning(f"Webhook {event_id} has no transaction_id. Marking processed.")
             webhook_event.processing_status = "PROCESSED"
-            webhook_event.processed_at = datetime.utcnow()
+            webhook_event.processed_at = datetime.now(timezone.utc)
             db.commit()
             return
             
@@ -102,7 +102,7 @@ def process_webhook(self, event_id: str):
         if not txn:
             logger.warning(f"Webhook {event_id} references unknown transaction {transaction_id}")
             webhook_event.processing_status = "PROCESSED"
-            webhook_event.processed_at = datetime.utcnow()
+            webhook_event.processed_at = datetime.now(timezone.utc)
             db.commit()
             return
 
@@ -143,7 +143,7 @@ def process_webhook(self, event_id: str):
             logger.info(f"Ignoring unhandled webhook event type: {event_type}")
 
         webhook_event.processing_status = "PROCESSED"
-        webhook_event.processed_at = datetime.utcnow()
+        webhook_event.processed_at = datetime.now(timezone.utc)
         db.commit()
 
     except Exception as e:
@@ -154,7 +154,7 @@ def process_webhook(self, event_id: str):
             webhook_event = db.query(WebhookEvent).filter(WebhookEvent.event_id == event_id).with_for_update().first()
             if webhook_event:
                 webhook_event.retry_count += 1
-                webhook_event.last_attempt_at = datetime.utcnow()
+                webhook_event.last_attempt_at = datetime.now(timezone.utc)
                 
                 if webhook_event.retry_count >= MAX_WEBHOOK_RETRIES:
                     logger.warning(f"Webhook {event_id} reached max retries. Marked as FAILED_PERMANENTLY.")

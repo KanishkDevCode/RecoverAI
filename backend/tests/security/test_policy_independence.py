@@ -18,7 +18,14 @@ def db_session():
         yield db
     finally:
         db.close()
-        Base.metadata.drop_all(bind=engine)
+    # Safe cleanup using reversed sorted_tables to respect FKs
+        db = TestingSessionLocal()
+        try:
+            for table in reversed(Base.metadata.sorted_tables):
+                db.execute(table.delete())
+            db.commit()
+        finally:
+            db.close()
 
 def get_base_payload(txn_id: str, amount: float, retry_count: int = 0) -> dict:
     return {

@@ -19,7 +19,11 @@ from unittest.mock import patch, MagicMock
 def setup_db():
     Base.metadata.create_all(bind=engine)
     yield
-    Base.metadata.drop_all(bind=engine)
+    # Safe cleanup using reversed sorted_tables to respect FKs
+    with engine.connect() as conn:
+        for table in reversed(Base.metadata.sorted_tables):
+            conn.execute(table.delete())
+        conn.commit()
 
 @pytest.fixture
 def db_session(setup_db):

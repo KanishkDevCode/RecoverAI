@@ -17,7 +17,10 @@ def db_session():
     session = TestingSessionLocal()
     yield session
     session.close()
-    Base.metadata.drop_all(bind=engine)
+    with engine.connect() as conn:
+        for table in reversed(Base.metadata.sorted_tables):
+            conn.execute(table.delete())
+        conn.commit()
 
 def create_pending_attempt(db):
     attempt_id = f"att_test_{uuid.uuid4().hex[:8]}"

@@ -1,6 +1,6 @@
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
 from app.models.db_models import RecoveryAttempt, IdempotencyRecord, Transaction, AuditLog
 from app.gateways import get_gateway
@@ -49,7 +49,7 @@ def reconcile_orphaned_attempts(db: Session):
     except ValueError:
         timeout_seconds = 300
         
-    cutoff_time = datetime.utcnow() - timedelta(seconds=timeout_seconds)
+    cutoff_time = datetime.now(timezone.utc) - timedelta(seconds=timeout_seconds)
     
     orphans = db.query(RecoveryAttempt).filter(
         RecoveryAttempt.outcome_status.in_(["PENDING", "AUTHORIZED", "EXECUTING", "VERIFYING"]),
@@ -86,7 +86,7 @@ def reconcile_stuck_refunds(db: Session):
     except ValueError:
         timeout_seconds = 300
         
-    cutoff_time = datetime.utcnow() - timedelta(seconds=timeout_seconds)
+    cutoff_time = datetime.now(timezone.utc) - timedelta(seconds=timeout_seconds)
     
     stuck_refunds = db.query(Transaction).filter(
         Transaction.refund_status.in_(["REFUND_REQUESTED", "REFUND_PROCESSING", "REFUND_UNKNOWN"]),
@@ -128,7 +128,7 @@ def reconcile_pending_webhooks(db: Session):
     from sqlalchemy import or_, and_
     
     timeout_seconds = 300
-    cutoff_time = datetime.utcnow() - timedelta(seconds=timeout_seconds)
+    cutoff_time = datetime.now(timezone.utc) - timedelta(seconds=timeout_seconds)
     
     stuck_events = db.query(WebhookEvent).filter(
         or_(
@@ -145,7 +145,7 @@ def reconcile_pending_webhooks(db: Session):
         logger.info(f"Reconciling stuck webhook event {event.event_id} (retry {event.retry_count}/{MAX_WEBHOOK_RETRIES})")
         try:
             # Update last_attempt_at so concurrent reconcilers or next sweeps won't pick it up immediately
-            event.last_attempt_at = datetime.utcnow()
+            event.last_attempt_at = datetime.now(timezone.utc)
             db.commit()
             process_webhook.apply_async(args=[event.event_id], queue="high_priority")
         except Exception as e:

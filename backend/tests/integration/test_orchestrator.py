@@ -18,7 +18,14 @@ def db_session():
         yield db
     finally:
         db.close()
-        Base.metadata.drop_all(bind=engine)
+    # Safe cleanup using reversed sorted_tables to respect FKs
+        db = TestingSessionLocal()
+        try:
+            for table in reversed(Base.metadata.sorted_tables):
+                db.execute(table.delete())
+            db.commit()
+        finally:
+            db.close()
 
 def test_orchestrator_full_flow_success(db_session):
     orchestrator = RecoveryOrchestrator(db_session)

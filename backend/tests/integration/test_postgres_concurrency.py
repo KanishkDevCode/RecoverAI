@@ -29,10 +29,16 @@ def pg_engine():
     if not POSTGRES_URL:
         pytest.skip("TEST_DATABASE_URL not set. Skipping PostgreSQL integration tests.")
     engine = create_engine(POSTGRES_URL, pool_size=5, max_overflow=10)
-    Base.metadata.drop_all(bind=engine)
+    with engine.connect() as conn:
+        for table in reversed(Base.metadata.sorted_tables):
+            conn.execute(table.delete())
+        conn.commit()
     Base.metadata.create_all(bind=engine)
     yield engine
-    Base.metadata.drop_all(bind=engine)
+    with engine.connect() as conn:
+        for table in reversed(Base.metadata.sorted_tables):
+            conn.execute(table.delete())
+        conn.commit()
 
 @pytest.fixture
 def pg_session(pg_engine):

@@ -11,7 +11,11 @@ from app.services.state_machine import transition_recovery_attempt
 def setup_db():
     Base.metadata.create_all(bind=engine)
     yield
-    Base.metadata.drop_all(bind=engine)
+    # Safe cleanup using reversed sorted_tables to respect FKs
+    with engine.connect() as conn:
+        for table in reversed(Base.metadata.sorted_tables):
+            conn.execute(table.delete())
+        conn.commit()
 
 def create_mock_transaction(db, txn_id):
     txn = Transaction(

@@ -16,7 +16,8 @@ def mock_aioredis():
     with patch("redis.asyncio.from_url") as mock_aio_from_url:
         mock_instance = AsyncMock()
         mock_pubsub = AsyncMock()
-        mock_instance.pubsub.return_value = mock_pubsub
+        # pubsub() is a synchronous method that returns the pubsub object
+        mock_instance.pubsub = MagicMock(return_value=mock_pubsub)
         mock_aio_from_url.return_value = mock_instance
         yield mock_instance, mock_pubsub
 
@@ -39,6 +40,9 @@ async def test_event_bus_subscribe_unsubscribe(mock_redis_sync, mock_aioredis):
     
     # Unsubscribe
     bus.unsubscribe("txn_123", queue)
+    
+    # Allow event loop to process cancellation
+    await asyncio.sleep(0)
     
     # Task should be cancelled
     assert queue._reader_task.cancelled() or queue._reader_task.done()

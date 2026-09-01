@@ -1,5 +1,5 @@
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch, MagicMock
 from sqlalchemy.orm import Session
 from app.models.db_models import Transaction, WebhookEvent, AuditLog
@@ -16,7 +16,7 @@ def test_pending_webhook_is_reconciled(db_session: Session):
     txn = Transaction(id="txn_pending_test", amount=1000, currency="USD", status="success", recovery_status="NOT_STARTED", refund_status="REFUND_REQUESTED")
     db_session.add(txn)
     
-    cutoff = datetime.utcnow() - timedelta(minutes=6)
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=6)
     event = WebhookEvent(
         event_id=event_id, 
         event_type="refund.completed", 
@@ -40,7 +40,7 @@ def test_failed_webhook_is_retried(db_session: Session):
     txn = Transaction(id="txn_failed_retry_test", amount=1000, currency="USD", status="success", recovery_status="NOT_STARTED", refund_status="REFUND_REQUESTED")
     db_session.add(txn)
     
-    cutoff = datetime.utcnow() - timedelta(minutes=6)
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=6)
     event = WebhookEvent(
         event_id=event_id, 
         event_type="refund.completed", 
@@ -117,7 +117,7 @@ def test_failed_webhook_stops_after_max_retries(db_session: Session):
 def test_reconciliation_ignores_failed_permanently(db_session: Session):
     event_id = "evt_failed_perm_recon"
     
-    cutoff = datetime.utcnow() - timedelta(minutes=6)
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=6)
     event = WebhookEvent(
         event_id=event_id, 
         event_type="refund.completed", 
@@ -139,7 +139,7 @@ def test_reconciliation_ignores_failed_permanently(db_session: Session):
 def test_last_attempt_at_prevents_immediate_repeated_enqueue(db_session: Session):
     event_id = "evt_recent_attempt"
     
-    recent_time = datetime.utcnow() - timedelta(minutes=1)
+    recent_time = datetime.now(timezone.utc) - timedelta(minutes=1)
     event = WebhookEvent(
         event_id=event_id, 
         event_type="refund.completed", 
@@ -162,7 +162,7 @@ def test_concurrent_reconciliation_avoids_duplicate(db_session: Session):
     # This relies on the skip_locked and last_attempt_at updating in the loop
     # We test that the loop updates last_attempt_at immediately
     event_id = "evt_concurrent"
-    cutoff = datetime.utcnow() - timedelta(minutes=6)
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=6)
     event = WebhookEvent(
         event_id=event_id, 
         event_type="refund.completed", 

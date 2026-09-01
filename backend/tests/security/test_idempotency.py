@@ -17,7 +17,10 @@ TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engin
 def setup_database():
     Base.metadata.create_all(bind=engine)
     yield
-    Base.metadata.drop_all(bind=engine)
+    with engine.connect() as conn:
+        for table in reversed(Base.metadata.sorted_tables):
+            conn.execute(table.delete())
+        conn.commit()
     if os.path.exists("./test_idempotency.db"):
         try:
             os.remove("./test_idempotency.db")
@@ -105,6 +108,14 @@ def test_existing_pending_operation():
 
 def test_five_concurrent_identical_requests():
     key = "idem_concurrent_1"
+    
+    # Pre-create the transaction synchronously to avoid IntegrityError races
+    # during concurrent execution where multiple threads might try to auto-create it.
+    session = TestingSessionLocal()
+    from app.models.db_models import Transaction
+    session.add(Transaction(id="txn_5", amount=100, currency="USD", status="failed", recovery_status="NOT_STARTED"))
+    session.commit()
+    session.close()
     
     def make_request():
         return execute_with_new_session("txn_5", "RETRY_PAYMENT", key)

@@ -19,7 +19,11 @@ client = TestClient(app)
 def setup_db():
     Base.metadata.create_all(bind=engine)
     yield
-    Base.metadata.drop_all(bind=engine)
+    # Safe cleanup using reversed sorted_tables to respect FKs
+    with engine.connect() as conn:
+        for table in reversed(Base.metadata.sorted_tables):
+            conn.execute(table.delete())
+        conn.commit()
 
 @pytest.fixture
 def db_session(setup_db):
@@ -169,6 +173,8 @@ def test_authorized_orphan_no_evidence(db_session):
     """
     txn_id = f"txn_{uuid.uuid4().hex[:8]}"
     attempt_id = f"att_{uuid.uuid4().hex[:8]}"
+    db_session.add(Transaction(id=txn_id, amount=100, status="success", recovery_status="NOT_STARTED"))
+    db_session.flush()
     db_session.add(RecoveryAttempt(
         id=attempt_id,
         transaction_id=txn_id,
@@ -189,6 +195,8 @@ def test_authorized_orphan_with_evidence(db_session):
     """
     txn_id = f"txn_{uuid.uuid4().hex[:8]}"
     attempt_id = f"att_{uuid.uuid4().hex[:8]}"
+    db_session.add(Transaction(id=txn_id, amount=100, status="success", recovery_status="NOT_STARTED"))
+    db_session.flush()
     db_session.add(RecoveryAttempt(
         id=attempt_id,
         transaction_id=txn_id,

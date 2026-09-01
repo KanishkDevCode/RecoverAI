@@ -8,8 +8,9 @@ class Settings:
         self.ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
         self.DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./recoverai.db")
         self.CORS_ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:5173")
-        self.LLM_PROVIDER = os.getenv("LLM_PROVIDER", "mock")
+        self.LLM_PROVIDER = os.getenv("LLM_PROVIDER", "auto").lower()
         self.GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+        self.GROQ_API_KEY = os.getenv("GROQ_API_KEY")
         
         # Celery Configuration
         self.CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")

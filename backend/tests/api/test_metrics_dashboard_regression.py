@@ -20,9 +20,9 @@ def client():
     db.commit()
     
     # Insert test data
-    txn1 = Transaction(id="txn_dash_1", customer_id="c1", amount="100.00", currency="USD", payment_method="card", status="failed", recovery_status="SUCCEEDED")
-    txn2 = Transaction(id="txn_dash_2", customer_id="c2", amount="200.00", currency="USD", payment_method="card", status="failed", recovery_status="FAILED")
-    txn3 = Transaction(id="txn_dash_3", customer_id="c3", amount="300.00", currency="USD", payment_method="card", status="failed", recovery_status="FAILED")
+    txn1 = Transaction(id="txn_dash_1", customer_id="c1", amount=10000, currency="USD", status="failed", recovery_status="SUCCEEDED")
+    txn2 = Transaction(id="txn_dash_2", customer_id="c2", amount=20000, currency="USD", status="failed", recovery_status="FAILED")
+    txn3 = Transaction(id="txn_dash_3", customer_id="c3", amount=30000, currency="USD", status="failed", recovery_status="FAILED")
     
     db.add_all([txn1, txn2, txn3])
     db.commit()
@@ -67,7 +67,7 @@ def test_observability_metrics_accuracy(client):
     """
     from app.database import SessionLocal
     db = SessionLocal()
-    txn4 = Transaction(id="txn_dash_4", customer_id="c4", amount="400.00", currency="USD", payment_method="card", status="failed", recovery_status="PROCESSING")
+    txn4 = Transaction(id="txn_dash_4", customer_id="c4", amount=40000, currency="USD", status="failed", recovery_status="PROCESSING")
     db.add(txn4)
     db.commit()
     

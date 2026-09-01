@@ -29,13 +29,13 @@ def test_legacy_endpoint_removed():
     assert response.status_code == 404
 
 def test_request_id_generation():
-    response = client.get("/health")
+    response = client.get("/api/v1/health/live")
     assert response.status_code == 200
     assert "x-request-id" in response.headers
 
 def test_request_id_propagation():
     custom_id = "req_custom_12345"
-    response = client.get("/health", headers={"X-Request-ID": custom_id})
+    response = client.get("/api/v1/health/live", headers={"X-Request-ID": custom_id})
     assert response.status_code == 200
     assert response.headers["x-request-id"] == custom_id
 
@@ -86,6 +86,10 @@ def test_production_missing_secret_fails_closed():
         del os.environ["WEBHOOK_SECRET"]
     if "CORS_ALLOWED_ORIGINS" in os.environ:
         del os.environ["CORS_ALLOWED_ORIGINS"]
+    if "OBSERVABILITY_API_KEY" in os.environ:
+        del os.environ["OBSERVABILITY_API_KEY"]
+    if "CELERY_BROKER_URL" in os.environ:
+        del os.environ["CELERY_BROKER_URL"]
         
     with pytest.raises(ValueError) as excinfo:
         Settings()
@@ -98,6 +102,11 @@ def test_production_missing_secret_fails_closed():
     assert "WEBHOOK_SECRET must be set in production" in str(excinfo.value)
     
     os.environ["WEBHOOK_SECRET"] = "prod_webhook_key"
+    with pytest.raises(ValueError) as excinfo:
+        Settings()
+    assert "OBSERVABILITY_API_KEY must be set in production" in str(excinfo.value)
+    
+    os.environ["OBSERVABILITY_API_KEY"] = "prod_obs_key"
     with pytest.raises(ValueError) as excinfo:
         Settings()
     assert "CELERY_BROKER_URL must be explicitly set" in str(excinfo.value)

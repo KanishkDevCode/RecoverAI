@@ -11,9 +11,48 @@ TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engin
 
 @pytest.fixture(scope="function", autouse=True)
 def setup_db():
+    print("Before create_all", flush=True)
     Base.metadata.create_all(bind=engine)
+    
+    # Pre-test cleanup
+    print("Pre-test cleanup starting...", flush=True)
+    db = TestingSessionLocal()
+    try:
+        from app.models.db_models import AuditLog, WebhookEvent, RecoveryAttempt, Transaction, IdempotencyRecord
+        print("Deleting AuditLog", flush=True)
+        db.query(AuditLog).delete()
+        print("Deleting WebhookEvent", flush=True)
+        db.query(WebhookEvent).delete()
+        print("Deleting RecoveryAttempt", flush=True)
+        db.query(RecoveryAttempt).delete()
+        print("Deleting Transaction", flush=True)
+        db.query(Transaction).delete()
+        print("Deleting IdempotencyRecord", flush=True)
+        db.query(IdempotencyRecord).delete()
+        print("Committing", flush=True)
+        db.commit()
+        print("Pre-test cleanup done.", flush=True)
+    except Exception as e:
+        print(f"Error during cleanup: {e}", flush=True)
+        db.rollback()
+        raise
+    finally:
+        db.close()
+        
     yield
-    Base.metadata.drop_all(bind=engine)
+    
+    # Post-test cleanup instead of unsafe drop_all()
+    db = TestingSessionLocal()
+    try:
+        from app.models.db_models import AuditLog, WebhookEvent, RecoveryAttempt, Transaction, IdempotencyRecord
+        db.query(AuditLog).delete()
+        db.query(WebhookEvent).delete()
+        db.query(RecoveryAttempt).delete()
+        db.query(Transaction).delete()
+        db.query(IdempotencyRecord).delete()
+        db.commit()
+    finally:
+        db.close()
 
 client = TestClient(app)
 API_KEY = "test_secret_key_123"
