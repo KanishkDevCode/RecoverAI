@@ -55,6 +55,88 @@ def process_orchestrator(self, transaction_id: str):
         raise Ignore()
     finally:
         db.close()
+        db.close()
+
+def execute_scheduled_retry(attempt_id: str):
+    """
+    Executes a retry safely by using the execution guard.
+    """
+    from app.models.db_models import RecoveryAttempt, Transaction
+    from app.services.state_machine import transition_recovery_attempt
+    from app.services.execution_guard import get_execution_guard
+    from app.services.event_bus import event_bus
+    from app.schemas.events import RecoveryEvent
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    logger.info(f"[Recovery] Executing scheduled retry for attempt {attempt_id}")
+    
+    db = SessionLocal()
+    try:
+        attempt = db.query(RecoveryAttempt).filter(RecoveryAttempt.id == attempt_id).first()
+        if not attempt:
+            logger.error(f"[Recovery] Attempt {attempt_id} not found.")
+            return
+            
+        if attempt.outcome_status != "WAITING":
+            logger.warning(f"[Recovery] Attempt {attempt_id} is not WAITING (status: {attempt.outcome_status}). Skipping.")
+            return
+            
+        txn_id = attempt.transaction_id
+        final_action = attempt.executed_action
+        
+        # Retry count is not on the Transaction model, default to 0 for idempotency
+        retry_count = 0
+        
+        transition_recovery_attempt(db, attempt_id, "AUTHORIZED", reason="Executing scheduled retry")
+        event_bus.publish(RecoveryEvent(
+            transaction_id=txn_id,
+            event_type="STATE_CHANGE",
+            data={"previous_state": "WAITING", "new_state": "AUTHORIZED", "reason": "Executing scheduled retry"}
+        ))
+        
+        idempotency_key = f"idem_{txn_id}_{final_action}_{retry_count}"
+        guard = get_execution_guard(db)
+        
+        # Gateway expects RETRY_PAYMENT
+        gateway_action = "RETRY_PAYMENT" if final_action == "WAIT_AND_RETRY" else final_action
+        
+        result_dict = guard.execute(txn_id, attempt_id, gateway_action, idempotency_key, retry_count)
+        
+        outcome_status = result_dict.get("status", "FAILED")
+        external_ref = result_dict.get("external_reference") or result_dict.get("result_message")
+        
+        event_bus.publish(RecoveryEvent(
+            transaction_id=txn_id,
+            event_type="GATEWAY_RESULT",
+            data={"action_executed": final_action, "status": outcome_status, "message": external_ref}
+        ))
+        
+        txn = db.query(Transaction).filter(Transaction.id == txn_id).first()
+        if txn:
+            txn.recovery_status = outcome_status
+            db.commit()
+                
+        event_bus.publish(RecoveryEvent(
+            transaction_id=txn_id,
+            event_type="RECOVERY_COMPLETE",
+            data={
+                "outcome": outcome_status,
+                "net_value_recovered": txn.amount if outcome_status == "SUCCEEDED" else 0.0
+            }
+        ))
+        
+    except Exception as e:
+        logger.error(f"[Recovery] Error executing retry for {attempt_id}: {e}")
+    finally:
+        db.close()
+
+@celery_app.task(bind=True, max_retries=0)
+def process_scheduled_retry(self, attempt_id: str):
+    """
+    Celery task wrapper for executing a scheduled retry.
+    """
+    return execute_scheduled_retry(attempt_id)
 
 
 MAX_WEBHOOK_RETRIES = 3

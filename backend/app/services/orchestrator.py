@@ -95,6 +95,8 @@ class RecoveryOrchestrator:
         attempt.policy_decision = "ALLOWED" if is_allowed else "DENIED"
         attempt.policy_reason = policy_reason
         attempt.executed_action = final_action if is_allowed else "NONE"
+        attempt.provider_used = getattr(diagnosis_response, 'provider_used', None)
+        attempt.latency_ms = getattr(diagnosis_response, 'latency_ms', None)
         self.db.commit()
         
         event_bus.publish(RecoveryEvent(
@@ -136,10 +138,8 @@ class RecoveryOrchestrator:
                 ))
                 
                 if outcome_status == "SUCCEEDED":
-                    txn = self.db.query(Transaction).filter(Transaction.id == txn_id).first()
-                    if txn:
-                        txn.recovery_status = "SUCCEEDED"
-                        self.db.commit()
+                    # We will update recovery_status below
+                    pass
             
             elif final_action == "WAIT_AND_RETRY":
                 outcome_status = "WAITING"
@@ -150,6 +150,16 @@ class RecoveryOrchestrator:
                     event_type="STATE_CHANGE",
                     data={"previous_state": "PENDING", "new_state": "WAITING", "reason": "Recovery scheduled"}
                 ))
+                
+                # Dispatch the retry task
+                from app.worker.tasks import process_scheduled_retry, execute_scheduled_retry
+                try:
+                    logger.info(f"[Recovery] Scheduling retry attempt_id={attempt_id} countdown=30")
+                    process_scheduled_retry.apply_async(args=[attempt_id], countdown=30)
+                except Exception as e:
+                    logger.warning("[Recovery] Celery dispatch unavailable; using controlled synchronous development fallback")
+                    execute_scheduled_retry(attempt_id)
+
 
             elif final_action == "SEND_RECOVERY_MESSAGE":
                 outcome_status = "AWAITING_CUSTOMER"
@@ -173,6 +183,12 @@ class RecoveryOrchestrator:
                 event_type="STATE_CHANGE",
                 data={"previous_state": "PENDING", "new_state": outcome_status, "reason": "Policy rejected"}
             ))
+            
+        # ALWAYS sync outcome_status to the transaction record
+        txn = self.db.query(Transaction).filter(Transaction.id == txn_id).first()
+        if txn:
+            txn.recovery_status = outcome_status
+            self.db.commit()
             
         result_dict_return = {
             "transaction_id": txn_id,

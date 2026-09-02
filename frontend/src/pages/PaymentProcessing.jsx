@@ -110,12 +110,38 @@ export default function PaymentProcessing() {
               <h2>Payment recovered</h2>
             </>
           )}
-          {paymentState === 'recovery_failed' && (
-            <>
-              <XCircle size={40} className="icon-fail" />
-              <h2>Recovery was not possible</h2>
-            </>
-          )}
+          {paymentState === 'recovery_failed' && (() => {
+            const wasEscalated = policyData?.final_action === 'CREATE_ESCALATION';
+            const wasStopped = policyData?.final_action === 'STOP_AUTOMATION';
+            const wasMessageSent = policyData?.final_action === 'SEND_RECOVERY_MESSAGE';
+            const wasWaiting = policyData?.final_action === 'WAIT_AND_RETRY';
+
+            if (wasWaiting) {
+              return (
+                <>
+                  <Loader2 size={40} className="spin" style={{ color: '#3b82f6', margin: '0 auto 1.5rem auto' }} />
+                  <h2 style={{ color: '#3b82f6' }}>Recovery Scheduled</h2>
+                  <p className="processing-sub">Transient issue detected. We'll automatically retry shortly.</p>
+                </>
+              );
+            }
+            if (wasMessageSent) {
+              return (
+                <>
+                  <AlertTriangle size={40} style={{ color: '#f59e0b', margin: '0 auto 1.5rem auto' }} />
+                  <h2 style={{ color: '#f59e0b' }}>Action Required</h2>
+                  <p className="processing-sub">Customer intervention needed to complete payment.</p>
+                </>
+              );
+            }
+            
+            return (
+              <>
+                <XCircle size={40} className="icon-fail" />
+                <h2>Recovery was not possible</h2>
+              </>
+            );
+          })()}
           {paymentState === 'unknown' && (
             <>
               <AlertTriangle size={40} className="icon-unknown" />

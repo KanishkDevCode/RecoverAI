@@ -4,7 +4,7 @@ import { getPayments } from '../services/api';
 import { Search, Filter, Loader2 } from 'lucide-react';
 
 const STATUS_COLORS = {
-  SUCCESS: 'badge-success',
+  SUCCEEDED: 'badge-success',
   CREATE_ESCALATION: 'badge-warning',
   STOP_AUTOMATION: 'badge-danger',
   FAILURE: 'badge-danger',
@@ -76,7 +76,7 @@ export default function Payments() {
           <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
             <option value="all">All Statuses</option>
             <option value="success">Normal Success</option>
-            <option value="SUCCESS">Recovered</option>
+            <option value="SUCCEEDED">Recovered</option>
             <option value="CREATE_ESCALATION">Escalated</option>
             <option value="STOP_AUTOMATION">Stopped</option>
           </select>

@@ -31,6 +31,10 @@ export function initiateRefund(id) {
   return request(`/payments/${id}/refund`, { method: 'POST' });
 }
 
+export function simulateManualRecovery(id) {
+  return request(`/recovery/manual/${id}`, { method: 'POST' });
+}
+
 export function getPayments(limit = 50) {
   return request(`/transactions?limit=${limit}`);
 }

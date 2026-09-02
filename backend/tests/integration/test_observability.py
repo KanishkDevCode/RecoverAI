@@ -12,6 +12,7 @@ os.environ["DATABASE_URL"] = "postgresql://test:test@localhost:5432/test" # Just
 os.environ["MERCHANT_API_KEY"] = "test-key"
 os.environ["WEBHOOK_SECRET"] = "test-secret"
 os.environ["CELERY_BROKER_URL"] = "memory://"
+os.environ["CORS_ALLOWED_ORIGINS"] = "*"
 
 from app.main import app
 
@@ -44,17 +45,23 @@ def test_liveness_probe():
     assert response.json() == {"status": "alive"}
 
 @patch("app.api.health.redis.Redis.from_url")
-def test_readiness_probe_healthy(mock_redis):
+@patch("app.worker.celery_app.celery_app.control.inspect")
+def test_readiness_probe_healthy(mock_inspect, mock_redis):
     # Mock redis ping success
     mock_r = MagicMock()
     mock_redis.return_value = mock_r
     
+    mock_i = MagicMock()
+    mock_i.ping.return_value = {"celery@worker1": {"ok": "pong"}}
+    mock_inspect.return_value = mock_i
+    
     response = client.get("/api/v1/health/ready")
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "ready"
-    assert data["database"] == "healthy"
-    assert data["redis"] == "healthy"
+    assert data["status"] == "healthy"
+    assert data["database"] == "connected"
+    assert data["redis"] == "connected"
+    assert data["celery"]["status"] == "worker_available"
 
 @patch("app.api.health.redis.Redis.from_url")
 def test_readiness_probe_redis_down(mock_redis):
@@ -64,9 +71,9 @@ def test_readiness_probe_redis_down(mock_redis):
     response = client.get("/api/v1/health/ready")
     assert response.status_code == 503
     data = response.json()
-    assert data["status"] == "not_ready"
-    assert data["database"] == "healthy"
-    assert data["redis"] == "unhealthy"
+    assert data["status"] == "degraded"
+    assert data["database"] == "connected"
+    assert data["redis"] == "disconnected"
 
 def test_metrics_protected():
     response = client.get("/api/v1/metrics")

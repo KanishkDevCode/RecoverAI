@@ -46,7 +46,7 @@ export default function Overview() {
   }
 
   const getUnifiedStatus = (txn) => {
-    if (txn.recovery_status === 'SUCCESS' || txn.original_status === 'recovered') return 'Recovered';
+    if (txn.recovery_status === 'SUCCEEDED' || txn.original_status === 'recovered') return 'Recovered';
     if (txn.original_status === 'success') return 'Succeeded';
     return txn.original_status === 'failed' ? 'Failed' : txn.original_status;
   };

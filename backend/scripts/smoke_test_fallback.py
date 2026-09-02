@@ -50,6 +50,8 @@ def run_test_scenario(scenario_name: str, test_mode: str, remove_groq_key: bool,
         response = agent.diagnose_transaction(transaction, 0.4)
         
         print("\n--- Result ---")
+        print(f"Provider Used: {getattr(response, 'provider_used', 'unknown')}")
+        print(f"Latency: {getattr(response, 'latency_ms', 0)} ms\n")
         print(f"Diagnosis: {response.diagnosis}")
         print(f"Action: {response.recommended_action}")
         print(f"Confidence: {response.confidence}")

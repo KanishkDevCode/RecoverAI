@@ -10,6 +10,7 @@ export default function PaymentDetails() {
   const [auditTrail, setAuditTrail] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [manualRecoveryDone, setManualRecoveryDone] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -50,7 +51,7 @@ export default function PaymentDetails() {
   }
 
   const { recovery } = details;
-  const isRecovered = recovery?.outcome_status === 'SUCCESS';
+  const isRecovered = recovery?.outcome_status === 'SUCCESS' || recovery?.outcome_status === 'SUCCEEDED' || recovery?.outcome_status === 'AUTHORIZED';
   const finalStatus = details.original_status === 'success' ? 'SUCCEEDED' : (recovery?.outcome_status || 'FAILED');
 
   return (
@@ -74,6 +75,23 @@ export default function PaymentDetails() {
             {finalStatus === 'FAILED' && (
               <button className="btn-primary" onClick={() => navigate('/checkout')}>Try Again</button>
             )}
+            {finalStatus === 'AWAITING_CUSTOMER' && (
+              <button 
+                style={{ padding: '0.4rem 0.8rem', fontSize: '0.875rem', backgroundColor: '#f59e0b', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}
+                onClick={async () => {
+                  try {
+                    const { simulateManualRecovery } = await import('../services/api');
+                    await simulateManualRecovery(transactionId);
+                    setManualRecoveryDone(true);
+                    loadData(); // refresh to show updated status
+                  } catch (err) {
+                    alert('Manual recovery failed: ' + err.message);
+                  }
+                }}
+              >
+                Initiate Recovery
+              </button>
+            )}
             {finalStatus === 'ESCALATED' && (
               <button className="btn-outline">Check Status</button>
             )}
@@ -94,14 +112,19 @@ export default function PaymentDetails() {
               </button>
             )}
             {details.refund_status === 'REFUND_REQUESTED' && (
-              <button className="btn-outline" disabled>Refund Requested...</button>
+              <button className="btn-outline" disabled>Refund request received</button>
             )}
             {details.refund_status === 'REFUND_PROCESSING' && (
-              <button className="btn-outline" onClick={loadData}>View Refund Status</button>
+              <button className="btn-outline" disabled>Refund is being processed</button>
             )}
             {details.refund_status === 'REFUNDED' && (
               <button className="btn-success" disabled>
-                <CheckCircle2 size={16} style={{ display: 'inline', marginRight: '4px' }} /> Refunded
+                <CheckCircle2 size={16} style={{ display: 'inline', marginRight: '4px' }} /> Refund successfully completed
+              </button>
+            )}
+            {details.refund_status === 'REFUND_FAILED' && (
+              <button className="btn-danger" disabled>
+                <XCircle size={16} style={{ display: 'inline', marginRight: '4px' }} /> Refund processing failed
               </button>
             )}
           </div>
@@ -148,6 +171,10 @@ export default function PaymentDetails() {
                 <span className="value">{recovery.agent_diagnosis || 'N/A'}</span>
               </div>
               <div className="detail-item">
+                <span className="label">Provider Used</span>
+                <span className="value" style={{ textTransform: 'capitalize', fontWeight: 600 }}>{recovery.provider_used || 'N/A'}</span>
+              </div>
+              <div className="detail-item">
                 <span className="label">Policy Action</span>
                 <span className={`value ${recovery.policy_decision === 'ALLOWED' ? 'text-success' : 'text-danger'}`}>
                   {recovery.policy_decision || 'N/A'}
@@ -161,10 +188,43 @@ export default function PaymentDetails() {
               )}
               <div className="detail-item full-width">
                 <span className="label">Final Outcome</span>
-                <span className={`value ${isRecovered ? 'text-success' : 'text-danger'}`}>
-                  {recovery.outcome_status} {recovery.executed_action ? `(${recovery.executed_action})` : ''}
-                </span>
+                {(() => {
+                  if (recovery.outcome_status === 'WAITING' || recovery.outcome_status === 'EXECUTING') {
+                    return (
+                      <span className="value flex-align gap-2" style={{ display: 'flex', alignItems: 'center', color: '#3b82f6', fontWeight: 600 }}>
+                        Recovery in Progress
+                        <Loader2 size={16} className="spin" style={{ color: '#3b82f6' }} />
+                      </span>
+                    );
+                  }
+                  if (recovery.outcome_status === 'AWAITING_CUSTOMER') {
+                    return (
+                      <span className="value flex-align gap-2 text-warning" style={{ display: 'flex', alignItems: 'center', fontWeight: 600 }}>
+                        Awaiting Customer
+                      </span>
+                    );
+                  }
+                  if (recovery.outcome_status === 'ESCALATED' || recovery.outcome_status === 'STOPPED') {
+                    return (
+                      <span className="value flex-align gap-2 text-danger" style={{ display: 'flex', alignItems: 'center', fontWeight: 600 }}>
+                        Recovery not possible
+                        <XCircle size={16} className="text-danger" />
+                      </span>
+                    );
+                  }
+                  return (
+                    <span className={`value flex-align gap-2 ${isRecovered ? 'text-success' : 'text-danger'}`} style={{ display: 'flex', alignItems: 'center', fontWeight: 600 }}>
+                      {recovery.outcome_status} {recovery.executed_action ? `(${recovery.executed_action})` : ''}
+                    </span>
+                  );
+                })()}
               </div>
+              {recovery.latency_ms != null && (
+                <div className="detail-item full-width" style={{ marginTop: '0.5rem' }}>
+                  <span className="label">Recovery Latency</span>
+                  <span className="value">{recovery.latency_ms} ms</span>
+                </div>
+              )}
             </div>
           </div>
         )}

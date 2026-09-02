@@ -47,6 +47,17 @@ def get_dashboard_metrics(db: Session = Depends(get_db), api_key: str = Depends(
     gateway_executions = db.query(AuditLog).filter(AuditLog.event_type == "GATEWAY_RESULT").count()
     unknown_transactions = db.query(RecoveryAttempt).filter(RecoveryAttempt.outcome_status == "UNKNOWN").count()
     
+    # Provider stats
+    from sqlalchemy import func
+    provider_counts = db.query(
+        RecoveryAttempt.provider_used, 
+        func.count(RecoveryAttempt.id)
+    ).group_by(RecoveryAttempt.provider_used).all()
+    
+    provider_stats = {
+        (p[0] or "unknown"): p[1] for p in provider_counts
+    }
+    
     return {
         "total_payments_count": total_txns,
         "total_revenue": total_revenue,
@@ -62,5 +73,6 @@ def get_dashboard_metrics(db: Session = Depends(get_db), api_key: str = Depends(
         "policy_allowed": policy_allowed,
         "policy_denied": policy_denied,
         "gateway_executions": gateway_executions,
-        "unknown_transactions": unknown_transactions
+        "unknown_transactions": unknown_transactions,
+        "provider_stats": provider_stats
     }

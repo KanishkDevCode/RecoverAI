@@ -9,8 +9,15 @@ class Settings:
         self.DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./recoverai.db")
         self.CORS_ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:5173")
         self.LLM_PROVIDER = os.getenv("LLM_PROVIDER", "auto").lower()
+        self.PAYMENT_PROVIDER = os.getenv("PAYMENT_PROVIDER", "mock").lower()
+        
         self.GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
         self.GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+        
+        # Razorpay Configuration (Lazy Validation)
+        self.RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
+        self.RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
+        self.RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET")
         
         # Celery Configuration
         self.CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
@@ -89,5 +96,9 @@ class Settings:
                 
         if self.LLM_PROVIDER == "gemini" and not self.GEMINI_API_KEY:
             raise ValueError("CONFIGURATION ERROR: GEMINI_API_KEY must be set when LLM_PROVIDER is gemini.")
+            
+        if self.PAYMENT_PROVIDER == "razorpay":
+            if not self.RAZORPAY_KEY_ID or not self.RAZORPAY_KEY_SECRET:
+                raise ValueError("CONFIGURATION ERROR: RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET must be set when PAYMENT_PROVIDER is razorpay.")
 
 settings = Settings()

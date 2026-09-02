@@ -50,14 +50,17 @@ class RefundService:
         self.db.commit()
         self._audit(transaction_id, old_status, "REFUND_REQUESTED", "Refund initiated by user")
         
+        # Transition to PROCESSING before hitting gateway
+        txn.refund_status = "REFUND_PROCESSING"
+        self.db.commit()
+        self._audit(transaction_id, "REFUND_REQUESTED", "REFUND_PROCESSING", "Sending refund request to gateway")
+        
         # 3. Gateway Call
         try:
             result = self.gateway.process_refund(self.db, transaction_id, idempotency_key)
             status = result.get("status", "FAILED")
             
             # Map gateway status to our internal states
-            # We don't blind-set REFUNDED unless the gateway actually says so immediately, 
-            # usually it is REFUND_PROCESSING.
             new_status = status
             if status == "SUCCEEDED":
                 new_status = "REFUNDED"
@@ -67,7 +70,7 @@ class RefundService:
             txn.refund_status = new_status
             self.db.commit()
             
-            self._audit(transaction_id, "REFUND_REQUESTED", new_status, result.get("result_message", "Gateway response"))
+            self._audit(transaction_id, "REFUND_PROCESSING", new_status, result.get("result_message", "Gateway response"))
             
             return {
                 "transaction_id": transaction_id,

@@ -64,6 +64,8 @@ def get_payment_details(
             "policy_reason": attempt.policy_reason,
             "outcome_status": attempt.outcome_status,
             "executed_action": attempt.executed_action,
-            "created_at": attempt.created_at
+            "created_at": attempt.created_at,
+            "latency_ms": attempt.latency_ms,
+            "provider_used": attempt.provider_used
         }
     }

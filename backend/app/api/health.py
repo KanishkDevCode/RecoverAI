@@ -23,7 +23,7 @@ def readiness_check(response: Response, db: Session = Depends(get_db)):
     Otherwise returns 503 Service Unavailable.
     """
     health_status = {
-        "status": "ready",
+        "status": "healthy",
         "database": "unknown",
         "redis": "unknown"
     }
@@ -34,25 +34,44 @@ def readiness_check(response: Response, db: Session = Depends(get_db)):
     try:
         from sqlalchemy import text
         db.execute(text("SELECT 1"))
-        health_status["database"] = "healthy"
+        health_status["database"] = "connected"
     except Exception as e:
         logger.error(f"Readiness check failed - Database error: {e}")
-        health_status["database"] = "unhealthy"
+        health_status["database"] = "disconnected"
         is_ready = False
         
-    # Check Redis
+    # Check Redis and Celery
+    health_status["celery"] = {
+        "status": "worker_unavailable",
+        "workers": 0
+    }
+    
     if settings.CELERY_BROKER_URL:
         try:
             r = redis.Redis.from_url(settings.CELERY_BROKER_URL, socket_timeout=1)
             r.ping()
-            health_status["redis"] = "healthy"
+            health_status["redis"] = "connected"
+            
+            # Check Celery workers (with a very short timeout)
+            from app.worker.celery_app import celery_app
+            try:
+                # ping all workers, wait up to 0.5s
+                inspect = celery_app.control.inspect(timeout=0.5)
+                ping_responses = inspect.ping()
+                
+                if ping_responses:
+                    health_status["celery"]["status"] = "worker_available"
+                    health_status["celery"]["workers"] = len(ping_responses)
+            except Exception as e:
+                logger.error(f"Celery worker ping failed: {e}")
+                
         except Exception as e:
             logger.error(f"Readiness check failed - Redis error: {e}")
-            health_status["redis"] = "unhealthy"
+            health_status["redis"] = "disconnected"
             is_ready = False
             
     if not is_ready:
-        health_status["status"] = "not_ready"
+        health_status["status"] = "degraded"
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         
     return health_status

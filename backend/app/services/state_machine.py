@@ -15,7 +15,7 @@ VALID_TRANSITIONS = {
     "FAILED": [],
     "STOPPED": [],
     "ESCALATED": [],
-    "WAITING": [],
+    "WAITING": ["AUTHORIZED", "STOPPED", "ESCALATED"],
     "AWAITING_CUSTOMER": []
 }
 

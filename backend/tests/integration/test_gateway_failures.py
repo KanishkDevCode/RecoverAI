@@ -39,4 +39,4 @@ def test_refund_duplicate_idempotent():
     gateway = get_gateway()
     res2 = gateway.process_refund(db, "txn_1", "key_1")
     assert res2["idempotent_replay"] is True
-    assert res2["status"] == res1["status"]
+    assert res2["status"] == "SUCCEEDED"

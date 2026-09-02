@@ -178,14 +178,12 @@ class MockGateway(GatewayInterface):
             # Simulate network latency
             time.sleep(0.1)
             
-            # In a real async refund, the gateway accepts the request, returns REFUND_PROCESSING, 
-            # and later fires a webhook. For our mock, we simulate returning REFUND_PROCESSING initially,
-            # but since this is a synchronous mock simulator without a separate background worker for webhooks,
-            # we'll still use the mock delay, but we'll fulfill it.
+            # Since this is a mock simulator for a synchronous execution model (Option A), 
+            # we simulate an immediately successful refund.
             
             ext_ref = f"refund_mock_{int(time.time())}"
-            result_msg = "Refund successfully initiated and processed."
-            status = "REFUND_PROCESSING"
+            result_msg = "Refund successfully completed."
+            status = "SUCCEEDED"
             
         except Exception as e:
             logger.error(f"External API explicitly failed during refund: {e}")

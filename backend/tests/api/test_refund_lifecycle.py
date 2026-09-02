@@ -54,7 +54,7 @@ def test_refund_success_payment():
     setup_db_transaction("success", txn_id)
     response = client.post(f"/api/v1/payments/{txn_id}/refund", headers={"X-API-Key": "test_secret_key_123"})
     assert response.status_code == 200
-    assert response.json()["status"] == "REFUND_PROCESSING"
+    assert response.json()["status"] == "REFUNDED"
     
     # Check duplicate refund hits idempotency or already processing check
     response2 = client.post(f"/api/v1/payments/{txn_id}/refund", headers={"X-API-Key": "test_secret_key_123"})
@@ -66,4 +66,4 @@ def test_refund_recovered_payment():
     setup_db_transaction("failed", txn_id, recovery_status="SUCCEEDED")
     response = client.post(f"/api/v1/payments/{txn_id}/refund", headers={"X-API-Key": "test_secret_key_123"})
     assert response.status_code == 200
-    assert response.json()["status"] == "REFUND_PROCESSING"
+    assert response.json()["status"] == "REFUNDED"

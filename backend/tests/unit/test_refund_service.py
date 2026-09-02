@@ -70,7 +70,7 @@ def test_refund_service_success_initiation():
         assert txn.refund_status == res["status"]
         
         audit = db.query(AuditLog).filter(AuditLog.transaction_id == "txn_1").all()
-        assert len(audit) == 2 # REFUND_REQUESTED and then processing/refunded
+        assert len(audit) == 3 # NONE->REQUESTED, REQUESTED->PROCESSING, PROCESSING->REFUNDED
     finally:
         db.rollback()
         db.close()

@@ -31,6 +31,8 @@ class RecoveryAttempt(Base):
     policy_reason = Column(String)
     executed_action = Column(String) # What was actually executed
     outcome_status = Column(String) # SUCCESS, FAILURE, PENDING, NONE
+    provider_used = Column(String, nullable=True) # groq, ollama, mock, etc.
+    latency_ms = Column(Integer, nullable=True) # end-to-end fallback chain latency
     version = Column(Integer, default=1, nullable=False) # For optimistic concurrency
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

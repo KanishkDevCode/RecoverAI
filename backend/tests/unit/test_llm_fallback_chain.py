@@ -48,6 +48,8 @@ def test_groq_success(mock_transaction):
             response = agent.diagnose_transaction(mock_transaction, 0.4)
             
             assert response.diagnosis == "Groq works"
+            assert response.provider_used == "groq"
+            assert isinstance(response.latency_ms, int)
             assert mock_urlopen.call_count == 1
             # Verify URL called was Groq
             called_req = mock_urlopen.call_args[0][0]
@@ -71,6 +73,8 @@ def test_groq_failure_ollama_success(mock_transaction):
             response = agent.diagnose_transaction(mock_transaction, 0.4)
             
             assert response.diagnosis == "Ollama works"
+            assert response.provider_used == "ollama"
+            assert isinstance(response.latency_ms, int)
             assert mock_urlopen.call_count == 2
 
 def test_groq_failure_ollama_failure_mock_success(mock_transaction):
@@ -83,6 +87,8 @@ def test_groq_failure_ollama_failure_mock_success(mock_transaction):
             response = agent.diagnose_transaction(mock_transaction, 0.4)
             
             assert "Mock diagnosis" in response.diagnosis
+            assert response.provider_used == "mock"
+            assert isinstance(response.latency_ms, int)
             assert mock_urlopen.call_count == 2 # 1 for Groq, 1 for Ollama
 
 def test_missing_groq_key_ollama_success(mock_transaction):

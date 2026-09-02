@@ -14,3 +14,7 @@ class DiagnosisResponse(BaseModel):
     ] = Field(..., description="The recommended recovery action from the allowed set.")
     reason: str = Field(..., description="Reasoning for the recommended action based on evidence.")
     estimated_recovery_probability: float = Field(..., ge=0.0, le=1.0, description="The probability of recovery provided by the ML model.")
+    
+    # Telemetry fields (not expected from LLM, attached by the agent)
+    provider_used: str | None = Field(default=None, exclude=True)
+    latency_ms: int | None = Field(default=None, exclude=True)

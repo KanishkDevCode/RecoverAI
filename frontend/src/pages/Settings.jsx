@@ -50,8 +50,8 @@ export default function Settings() {
             {loading ? (
               <Loader2 size={16} className="spin" />
             ) : health ? (
-              <span className={`connection-status ${health.status === 'ready' ? 'online' : 'offline'}`}>
-                {health.status === 'ready' ? <CheckCircle2 size={14} /> : <XCircle size={14} />} {health.status === 'ready' ? 'Healthy' : 'Unavailable'}
+              <span className={`connection-status ${health.status === 'healthy' ? 'online' : 'offline'}`}>
+                {health.status === 'healthy' ? <CheckCircle2 size={14} /> : <XCircle size={14} />} {health.status === 'healthy' ? 'Healthy' : 'Unavailable'}
               </span>
             ) : (
               <span className="connection-status offline"><XCircle size={14} /> Offline</span>
@@ -63,8 +63,8 @@ export default function Settings() {
             {loading ? (
               <Loader2 size={16} className="spin" />
             ) : health ? (
-              <span className={`connection-status ${health.database === 'healthy' ? 'online' : 'offline'}`}>
-                {health.database === 'healthy' ? <CheckCircle2 size={14} /> : <XCircle size={14} />} {health.database === 'healthy' ? 'Connected' : 'Error'}
+              <span className={`connection-status ${health.database === 'connected' ? 'online' : 'offline'}`}>
+                {health.database === 'connected' ? <CheckCircle2 size={14} /> : <XCircle size={14} />} {health.database === 'connected' ? 'Connected' : 'Error'}
               </span>
             ) : (
               <span className="connection-status offline"><XCircle size={14} /> Offline</span>
@@ -76,8 +76,8 @@ export default function Settings() {
             {loading ? (
               <Loader2 size={16} className="spin" />
             ) : health ? (
-              <span className={`connection-status ${health.redis === 'healthy' ? 'online' : 'offline'}`}>
-                {health.redis === 'healthy' ? <CheckCircle2 size={14} /> : <XCircle size={14} />} {health.redis === 'healthy' ? 'Connected' : 'Error'}
+              <span className={`connection-status ${health.redis === 'connected' && health.celery?.status === 'worker_available' ? 'online' : 'offline'}`}>
+                {health.redis === 'connected' && health.celery?.status === 'worker_available' ? <CheckCircle2 size={14} /> : <XCircle size={14} />} {health.redis === 'connected' && health.celery?.status === 'worker_available' ? 'Connected' : 'Error'}
               </span>
             ) : (
               <span className="connection-status offline"><XCircle size={14} /> Offline</span>
