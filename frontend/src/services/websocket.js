@@ -1,4 +1,4 @@
-const WS_BASE = import.meta.env.VITE_WS_BASE_URL || 'ws://127.0.0.1:8000/api/v1';
+const WS_BASE = import.meta.env.VITE_WS_URL || 'ws://127.0.0.1:8000/api/v1';
 
 /**
  * Opens a WebSocket connection for a recovery stream.
