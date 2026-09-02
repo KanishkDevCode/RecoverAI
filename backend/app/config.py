@@ -17,7 +17,6 @@ class Settings:
         # Razorpay Configuration (Lazy Validation)
         self.RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
         self.RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
-        self.RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET")
         
         # Celery Configuration
         self.CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
@@ -31,11 +30,14 @@ class Settings:
         else:
             self.MERCHANT_API_KEY = env_key
             
-        webhook_secret = os.getenv("WEBHOOK_SECRET")
+        webhook_secret = os.getenv("RAZORPAY_WEBHOOK_SECRET")
         if self.ENVIRONMENT == "development" and not webhook_secret:
-            self.WEBHOOK_SECRET = "test_webhook_secret_456"
+            self.RAZORPAY_WEBHOOK_SECRET = "test_webhook_secret_456"
         else:
-            self.WEBHOOK_SECRET = webhook_secret
+            self.RAZORPAY_WEBHOOK_SECRET = webhook_secret
+            
+        # Retain as backwards-compatible alias
+        self.WEBHOOK_SECRET = self.RAZORPAY_WEBHOOK_SECRET
         
         timeout_str = os.getenv("UNKNOWN_RECONCILIATION_TIMEOUT_SECONDS", "60")
         try:
@@ -75,8 +77,8 @@ class Settings:
             if not self.MERCHANT_API_KEY:
                 raise ValueError("SECURITY ERROR: MERCHANT_API_KEY must be set in production.")
                 
-            if not self.WEBHOOK_SECRET:
-                raise ValueError("SECURITY ERROR: WEBHOOK_SECRET must be set in production.")
+            if not self.RAZORPAY_WEBHOOK_SECRET:
+                raise ValueError("SECURITY ERROR: RAZORPAY_WEBHOOK_SECRET must be set in production.")
                 
             if not self.OBSERVABILITY_API_KEY:
                 raise ValueError("SECURITY ERROR: OBSERVABILITY_API_KEY must be set in production.")

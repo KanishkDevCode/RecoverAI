@@ -2,6 +2,7 @@ import pytest
 import threading
 import uuid
 import time
+import json
 from datetime import datetime, timedelta
 from app.database import Base, engine, SessionLocal
 from app.models.db_models import Transaction, RecoveryAttempt, IdempotencyRecord, WebhookEvent
@@ -240,7 +241,7 @@ def test_webhook_intent_validation(db_session):
         event_type="refund.completed",
         transaction_id=txn_id,
         payload_hash="dummy",
-        payload="{}"
+        payload=json.dumps({"transaction_id": txn_id, "event_type": "refund.completed"})
     ))
     db_session.commit()
 
@@ -261,7 +262,7 @@ def test_webhook_intent_validation(db_session):
         event_type="refund.completed",
         transaction_id=txn_id,
         payload_hash="dummy",
-        payload="{}"
+        payload=json.dumps({"transaction_id": txn_id, "event_type": "refund.completed"})
     ))
     db_session.commit()
 

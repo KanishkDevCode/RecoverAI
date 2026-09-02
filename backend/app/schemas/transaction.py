@@ -24,6 +24,7 @@ class TransactionIncoming(BaseModel):
     model_config = ConfigDict(extra='forbid')
     
     id: constr(min_length=1, max_length=100) = Field(..., description="Transaction ID")
+    gateway_payment_id: Optional[str] = None
     customer_id: constr(min_length=1, max_length=100)
     amount: confloat(gt=0) = Field(..., description="Transaction amount (must be strictly positive)")
     currency: CurrencyEnum = Field(default=CurrencyEnum.INR)
@@ -54,6 +55,7 @@ class PaymentCreateRequest(BaseModel):
     model_config = ConfigDict(extra='ignore')
     
     id: constr(min_length=1, max_length=100) = Field(..., description="Transaction ID")
+    gateway_payment_id: Optional[str] = None
     customer_id: constr(min_length=1, max_length=100)
     amount: confloat(gt=0) = Field(..., description="Transaction amount")
     currency: CurrencyEnum = Field(default=CurrencyEnum.INR)

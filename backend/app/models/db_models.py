@@ -6,6 +6,8 @@ class Transaction(Base):
     __tablename__ = "transactions"
 
     id = Column(String, primary_key=True, index=True) # e.g. txn_...
+    gateway_payment_id = Column(String, nullable=True, unique=True, index=True)
+    gateway_refund_id = Column(String, nullable=True, unique=True, index=True)
     customer_id = Column(String, index=True)
     amount = Column(Integer, nullable=False) # stored in minor units (e.g. paise)
     currency = Column(String, default="INR")

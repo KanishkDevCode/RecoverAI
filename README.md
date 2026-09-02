@@ -29,7 +29,7 @@ A rigid state machine (`PENDING` -> `AUTHORIZED` -> `SUCCEEDED` / `FAILED` / `ES
 ### 5. Configurable Payment Gateways (Factory Pattern)
 The application dynamically switches between gateway abstractions using the `PAYMENT_PROVIDER` environment variable:
 - **MockGateway (`PAYMENT_PROVIDER=mock`)**: A highly robust local simulator that acts like a real gateway. It enforces strict idempotency, simulates network latency, and allows for massive parallel automated testing without requiring real API keys.
-- **RazorpayGateway (`PAYMENT_PROVIDER=razorpay`)**: The production-ready integration with Razorpay Test Mode. It safely maps internal semantic actions to strict real-world API endpoints (e.g., mapping `SEND_RECOVERY_MESSAGE` to generating Razorpay Payment Links, and `PROCESS_REFUND` to Razorpay's Refund API). It rigorously strips and sanitizes all API secrets from exceptions to guarantee they never leak into logs.
+- **RazorpayGateway (`PAYMENT_PROVIDER=razorpay`)**: The production-ready integration with Razorpay Test Mode. It safely maps internal semantic actions to strict real-world API endpoints (e.g., mapping `SEND_RECOVERY_MESSAGE` to generating Razorpay Payment Links, and `PROCESS_REFUND` to Razorpay's Refund API). It rigorously strips and sanitizes all API secrets from exceptions to guarantee they never leak into logs. It fully implements Razorpay webhooks (`payment.failed`, `payment.captured`, `refund.created`) using strict HMAC-SHA256 signature verification to achieve true real-time end-to-end integration.
 
 ### 6. Audit Trail
 Every transition, recommendation, and policy decision is immutably logged to the database for compliance and observability.

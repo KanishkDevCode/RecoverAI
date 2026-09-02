@@ -81,7 +81,7 @@ def test_webhook_persists_before_enqueue(client, db_session, test_txn, monkeypat
         "transaction_id": test_txn.id
     }
     payload_bytes = json.dumps(payload).encode('utf-8')
-    sig = generate_signature(payload_bytes, settings.WEBHOOK_SECRET)
+    sig = generate_signature(payload_bytes, settings.RAZORPAY_WEBHOOK_SECRET)
     
     resp = client.post(
         "/api/v1/webhooks/gateway",
@@ -110,7 +110,7 @@ def test_successful_celery_processing(db_session, test_txn):
         event_type="refund.completed",
         transaction_id=test_txn.id,
         payload_hash="dummy",
-        payload="{}",
+        payload=json.dumps({"transaction_id": test_txn.id, "event_type": "refund.completed"}),
         processing_status="PENDING"
     )
     db_session.add(event)
@@ -146,7 +146,7 @@ def test_duplicate_event_delivery(db_session, test_txn):
         event_type="refund.completed",
         transaction_id=test_txn.id,
         payload_hash="dummy",
-        payload="{}",
+        payload=json.dumps({"transaction_id": test_txn.id, "event_type": "refund.completed"}),
         processing_status="PENDING"
     )
     db_session.add(event)
@@ -178,7 +178,7 @@ def test_worker_crash_recovery(db_session, test_txn, monkeypatch):
         event_type="refund.completed",
         transaction_id=test_txn.id,
         payload_hash="dummy",
-        payload="{}",
+        payload=json.dumps({"transaction_id": test_txn.id, "event_type": "refund.completed"}),
         processing_status="PENDING"
     )
     db_session.add(event)
@@ -221,7 +221,7 @@ def test_invalid_webhook_intent_cannot_change_state(db_session, test_txn):
         event_type="refund.completed",
         transaction_id=test_txn.id,
         payload_hash="dummy",
-        payload="{}",
+        payload=json.dumps({"transaction_id": test_txn.id, "event_type": "refund.completed"}),
         processing_status="PENDING"
     )
     db_session.add(event)
@@ -249,7 +249,7 @@ def test_redis_task_loss_recovery(db_session, test_txn):
         event_type="refund.completed",
         transaction_id=test_txn.id,
         payload_hash="dummy",
-        payload="{}",
+        payload=json.dumps({"transaction_id": test_txn.id, "event_type": "refund.completed"}),
         processing_status="PENDING",
         received_at=datetime.utcnow() - timedelta(minutes=10) # 10 mins ago (stuck)
     )
@@ -279,7 +279,7 @@ def test_webhook_worker_cannot_execute_financial_commands(db_session, test_txn, 
         event_type="refund.completed",
         transaction_id=test_txn.id,
         payload_hash="dummy",
-        payload="{}",
+        payload=json.dumps({"transaction_id": test_txn.id, "event_type": "refund.completed"}),
         processing_status="PENDING"
     )
     db_session.add(event)

@@ -82,8 +82,8 @@ def test_production_missing_secret_fails_closed():
     
     if "MERCHANT_API_KEY" in os.environ:
         del os.environ["MERCHANT_API_KEY"]
-    if "WEBHOOK_SECRET" in os.environ:
-        del os.environ["WEBHOOK_SECRET"]
+    if "RAZORPAY_WEBHOOK_SECRET" in os.environ:
+        del os.environ["RAZORPAY_WEBHOOK_SECRET"]
     if "CORS_ALLOWED_ORIGINS" in os.environ:
         del os.environ["CORS_ALLOWED_ORIGINS"]
     if "OBSERVABILITY_API_KEY" in os.environ:
@@ -99,9 +99,9 @@ def test_production_missing_secret_fails_closed():
     os.environ["MERCHANT_API_KEY"] = "prod_key"
     with pytest.raises(ValueError) as excinfo:
         Settings()
-    assert "WEBHOOK_SECRET must be set in production" in str(excinfo.value)
+    assert "RAZORPAY_WEBHOOK_SECRET must be set in production" in str(excinfo.value)
     
-    os.environ["WEBHOOK_SECRET"] = "prod_webhook_key"
+    os.environ["RAZORPAY_WEBHOOK_SECRET"] = "prod_webhook_key"
     with pytest.raises(ValueError) as excinfo:
         Settings()
     assert "OBSERVABILITY_API_KEY must be set in production" in str(excinfo.value)

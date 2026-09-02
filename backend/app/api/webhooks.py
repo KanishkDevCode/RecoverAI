@@ -9,6 +9,7 @@ from app.database import get_db
 from app.models.db_models import WebhookEvent, Transaction, AuditLog
 from app.gateways import get_gateway
 from app.config import settings
+from app.services.webhook_parser import normalize_webhook_payload
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -31,7 +32,7 @@ async def gateway_webhook(
     gateway = get_gateway()
     
     # 1. Signature Verification
-    secret = settings.WEBHOOK_SECRET
+    secret = settings.RAZORPAY_WEBHOOK_SECRET
     is_valid = gateway.verify_webhook_signature(payload_bytes, x_razorpay_signature, secret)
     
     if not is_valid:
@@ -46,9 +47,13 @@ async def gateway_webhook(
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
         
-    event_id = data.get("event_id")
-    event_type = data.get("event_type")
-    transaction_id = data.get("transaction_id")
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty JSON payload")
+        
+    normalized = normalize_webhook_payload(data, dict(request.headers))
+    
+    event_id = normalized.get("event_id")
+    event_type = normalized.get("event_type")
     
     if not event_id or not event_type:
         raise HTTPException(status_code=400, detail="Missing event_id or event_type")
@@ -58,7 +63,7 @@ async def gateway_webhook(
         webhook_event = WebhookEvent(
             event_id=event_id,
             event_type=event_type,
-            transaction_id=transaction_id,
+            transaction_id=normalized.get("transaction_id"),
             payload_hash=payload_hash,
             payload=payload_str,
             processing_status="PENDING"

@@ -86,6 +86,7 @@ def create_payment(
     try:
         db_txn = Transaction(
             id=request.id,
+            gateway_payment_id=request.gateway_payment_id,
             customer_id=request.customer_id,
             amount=to_minor_units(request.amount),
             currency=request.currency,

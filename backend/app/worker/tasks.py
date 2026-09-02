@@ -147,7 +147,9 @@ def process_webhook(self, event_id: str):
     SAFE TO RETRY. Processes webhooks durably.
     """
     from datetime import datetime, timezone
+    import json
     from app.models.db_models import WebhookEvent, AuditLog
+    from app.services.webhook_parser import normalize_webhook_payload
     
     logger.info(f"Celery processing webhook {event_id}")
     db = SessionLocal()
@@ -172,33 +174,79 @@ def process_webhook(self, event_id: str):
         webhook_event.last_attempt_at = datetime.now(timezone.utc)
         db.commit()
 
-        transaction_id = webhook_event.transaction_id
-        if not transaction_id:
-            logger.warning(f"Webhook {event_id} has no transaction_id. Marking processed.")
-            webhook_event.processing_status = "PROCESSED"
-            webhook_event.processed_at = datetime.now(timezone.utc)
+        # Re-parse payload and normalize
+        try:
+            raw_payload = json.loads(webhook_event.payload)
+        except json.JSONDecodeError:
+            logger.error(f"Webhook {event_id} has invalid JSON payload")
+            webhook_event.processing_status = "FAILED_PERMANENTLY"
             db.commit()
             return
             
-        txn = db.query(Transaction).filter(Transaction.id == transaction_id).with_for_update().first()
-        if not txn:
-            logger.warning(f"Webhook {event_id} references unknown transaction {transaction_id}")
-            webhook_event.processing_status = "PROCESSED"
-            webhook_event.processed_at = datetime.now(timezone.utc)
-            db.commit()
-            return
-
-        event_type = webhook_event.event_type
+        normalized = normalize_webhook_payload(raw_payload, {})
+        gateway_payment_id = normalized.get("gateway_payment_id")
+        legacy_txn_id = normalized.get("transaction_id")
         
-        if event_type == "refund.completed":
+        # Transaction Lookup
+        txn = None
+        if gateway_payment_id:
+            txn = db.query(Transaction).filter(Transaction.gateway_payment_id == gateway_payment_id).with_for_update().first()
+        if not txn and legacy_txn_id:
+            txn = db.query(Transaction).filter(Transaction.id == legacy_txn_id).with_for_update().first()
+            
+        if not txn:
+            logger.warning(f"Webhook {event_id} references missing transaction (payment_id: {gateway_payment_id}, txn_id: {legacy_txn_id}). Retrying.")
+            db.rollback() # Release locks before retrying
+            # Celery native retry for missing transactions (handles race condition)
+            raise self.retry(exc=Exception("Transaction not found"), countdown=60, max_retries=5)
+
+        event_type = normalized.get("event_type")
+        
+        if event_type == "payment.failed":
+            if txn.recovery_status == "NOT_STARTED":
+                txn.recovery_status = "PROCESSING"
+                db.commit()
+                # Enqueue recovery orchestrator
+                from app.worker.tasks import process_orchestrator
+                process_orchestrator.apply_async(args=[txn.id])
+            else:
+                logger.info(f"Webhook {event_id} ignored: Transaction {txn.id} recovery already started ({txn.recovery_status})")
+                
+        elif event_type == "payment.captured":
+            txn.status = "success"
+            audit = AuditLog(
+                transaction_id=txn.id,
+                event_type="PAYMENT_CAPTURED",
+                previous_state="failed", # We only recover failed ones, but anyway
+                new_state="success",
+                reasoning=f"Webhook event: {event_id}"
+            )
+            db.add(audit)
+            
+        elif event_type == "refund.created":
+            if normalized.get("gateway_refund_id") and not txn.gateway_refund_id:
+                txn.gateway_refund_id = normalized.get("gateway_refund_id")
+            audit = AuditLog(
+                transaction_id=txn.id,
+                event_type="REFUND_CREATED",
+                previous_state=txn.refund_status,
+                new_state=txn.refund_status,
+                reasoning=f"Webhook event: {event_id}"
+            )
+            db.add(audit)
+            
+        elif event_type in ["refund.processed", "refund.completed"]:
+            if normalized.get("gateway_refund_id") and not txn.gateway_refund_id:
+                txn.gateway_refund_id = normalized.get("gateway_refund_id")
+            
             if txn.refund_status not in ["REFUND_REQUESTED", "REFUND_PROCESSING"]:
-                logger.warning(f"Webhook {event_id} ignored: Transaction {transaction_id} is in invalid state for refund completion ({txn.refund_status})")
+                logger.warning(f"Webhook {event_id} ignored: Transaction {txn.id} is in invalid state for refund completion ({txn.refund_status})")
             elif txn.refund_status != "REFUNDED":
                 old_status = txn.refund_status
                 txn.refund_status = "REFUNDED"
                 
                 audit = AuditLog(
-                    transaction_id=transaction_id,
+                    transaction_id=txn.id,
                     event_type="REFUND_STATE_CHANGE",
                     previous_state=old_status,
                     new_state="REFUNDED",
@@ -207,14 +255,12 @@ def process_webhook(self, event_id: str):
                 db.add(audit)
                 
         elif event_type == "refund.failed":
-            if txn.refund_status not in ["REFUND_REQUESTED", "REFUND_PROCESSING"]:
-                logger.warning(f"Webhook {event_id} ignored: Transaction {transaction_id} is in invalid state for refund failure ({txn.refund_status})")
-            elif txn.refund_status not in ["REFUNDED", "REFUND_FAILED"]:
+            if txn.refund_status not in ["REFUNDED", "REFUND_FAILED"]:
                 old_status = txn.refund_status
                 txn.refund_status = "REFUND_FAILED"
                 
                 audit = AuditLog(
-                    transaction_id=transaction_id,
+                    transaction_id=txn.id,
                     event_type="REFUND_STATE_CHANGE",
                     previous_state=old_status,
                     new_state="REFUND_FAILED",

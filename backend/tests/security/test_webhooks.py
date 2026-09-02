@@ -58,7 +58,7 @@ def test_webhook_valid_signature_success():
     payload_str = json.dumps(payload).replace(" ", "")
     # Note: TestClient json dumps might have spaces. We send data directly as bytes for strict signature matching.
     payload_bytes = json.dumps(payload).encode('utf-8')
-    sig = generate_signature(payload_bytes.decode('utf-8'), settings.WEBHOOK_SECRET)
+    sig = generate_signature(payload_bytes.decode('utf-8'), settings.RAZORPAY_WEBHOOK_SECRET)
     
     headers = {"X-Razorpay-Signature": sig, "Content-Type": "application/json"}
     response = client.post("/api/v1/webhooks/gateway", data=payload_bytes, headers=headers)

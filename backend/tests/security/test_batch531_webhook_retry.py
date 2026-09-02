@@ -1,3 +1,4 @@
+import json
 import pytest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch, MagicMock
@@ -22,7 +23,7 @@ def test_pending_webhook_is_reconciled(db_session: Session):
         event_type="refund.completed", 
         transaction_id="txn_pending_test",
         payload_hash="hash",
-        payload="{}",
+        payload=json.dumps({"transaction_id": "txn_safe_exec", "event_type": "refund.completed"}),
         processing_status="PENDING",
         received_at=cutoff
     )
@@ -46,7 +47,7 @@ def test_failed_webhook_is_retried(db_session: Session):
         event_type="refund.completed", 
         transaction_id="txn_failed_retry_test",
         payload_hash="hash",
-        payload="{}",
+        payload=json.dumps({"transaction_id": "txn_safe_exec", "event_type": "refund.completed"}),
         processing_status="FAILED",
         received_at=cutoff - timedelta(days=1),
         last_attempt_at=cutoff,
@@ -72,7 +73,7 @@ def test_failed_webhook_retry_count_increments(db_session: Session):
         event_type="refund.completed", 
         transaction_id="txn_failed_increment",
         payload_hash="hash",
-        payload="{}",
+        payload=json.dumps({"transaction_id": "txn_safe_exec", "event_type": "refund.completed"}),
         processing_status="PENDING",
         retry_count=0
     )
@@ -99,7 +100,7 @@ def test_failed_webhook_stops_after_max_retries(db_session: Session):
         event_type="refund.completed", 
         transaction_id="txn_failed_max",
         payload_hash="hash",
-        payload="{}",
+        payload=json.dumps({"transaction_id": "txn_safe_exec", "event_type": "refund.completed"}),
         processing_status="FAILED",
         retry_count=MAX_WEBHOOK_RETRIES - 1
     )
@@ -123,7 +124,7 @@ def test_reconciliation_ignores_failed_permanently(db_session: Session):
         event_type="refund.completed", 
         transaction_id="txn_failed_perm_recon",
         payload_hash="hash",
-        payload="{}",
+        payload=json.dumps({"transaction_id": "txn_safe_exec", "event_type": "refund.completed"}),
         processing_status="FAILED_PERMANENTLY",
         received_at=cutoff,
         last_attempt_at=cutoff,
@@ -145,7 +146,7 @@ def test_last_attempt_at_prevents_immediate_repeated_enqueue(db_session: Session
         event_type="refund.completed", 
         transaction_id="txn_recent",
         payload_hash="hash",
-        payload="{}",
+        payload=json.dumps({"transaction_id": "txn_safe_exec", "event_type": "refund.completed"}),
         processing_status="FAILED",
         received_at=recent_time - timedelta(days=1),
         last_attempt_at=recent_time,
@@ -168,7 +169,7 @@ def test_concurrent_reconciliation_avoids_duplicate(db_session: Session):
         event_type="refund.completed", 
         transaction_id="txn_concurrent",
         payload_hash="hash",
-        payload="{}",
+        payload=json.dumps({"transaction_id": "txn_safe_exec", "event_type": "refund.completed"}),
         processing_status="PENDING",
         received_at=cutoff
     )
@@ -190,7 +191,7 @@ def test_already_processed_webhook_is_noop(db_session: Session):
         event_type="refund.completed", 
         transaction_id="txn_noop",
         payload_hash="hash",
-        payload="{}",
+        payload=json.dumps({"transaction_id": "txn_safe_exec", "event_type": "refund.completed"}),
         processing_status="PROCESSED"
     )
     db_session.add(event)
@@ -214,7 +215,7 @@ def test_webhook_cannot_execute_payment_or_refund(db_session: Session):
         event_type="refund.completed", 
         transaction_id="txn_safe_exec",
         payload_hash="hash",
-        payload="{}",
+        payload=json.dumps({"transaction_id": "txn_safe_exec", "event_type": "refund.completed"}),
         processing_status="PENDING"
     )
     db_session.add(event)
@@ -236,7 +237,7 @@ def test_poison_pill_webhook_terminates(db_session: Session):
         event_type="refund.completed", 
         transaction_id="txn_poison",
         payload_hash="hash",
-        payload="{}",
+        payload=json.dumps({"transaction_id": "txn_safe_exec", "event_type": "refund.completed"}),
         processing_status="PENDING"
     )
     db_session.add(event)
