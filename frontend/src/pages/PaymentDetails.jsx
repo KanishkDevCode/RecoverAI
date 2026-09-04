@@ -212,6 +212,20 @@ export default function PaymentDetails() {
                       </span>
                     );
                   }
+                  if (recovery.outcome_status === 'FAILED' && recovery.executed_action === 'WAIT_AND_RETRY') {
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.25rem' }}>
+                        <span className="value flex-align gap-2 text-warning" style={{ display: 'flex', alignItems: 'center', fontWeight: 600 }}>
+                          Recovery Blocked Safely
+                        </span>
+                        <span className="value" style={{ fontSize: '0.9rem', color: '#6b7280' }}>
+                          <strong>Action:</strong> {recovery.executed_action}<br/>
+                          <strong>Reason:</strong> Automatic retry is not supported by Razorpay. Manual/customer action required.
+                        </span>
+                      </div>
+                    );
+                  }
+                  
                   return (
                     <span className={`value flex-align gap-2 ${isRecovered ? 'text-success' : 'text-danger'}`} style={{ display: 'flex', alignItems: 'center', fontWeight: 600 }}>
                       {recovery.outcome_status} {recovery.executed_action ? `(${recovery.executed_action})` : ''}
