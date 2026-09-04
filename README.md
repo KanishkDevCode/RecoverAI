@@ -1,5 +1,9 @@
 # RecoverAI — Autonomous Revenue Recovery Agent
 
+<div align="center">
+  <h3>🚀 <a href="https://recover-ai-xi-ten.vercel.app/" target="_blank"><strong>Live Interactive Demo</strong></a> 🚀</h3>
+  <p><strong><a href="https://recover-ai-xi-ten.vercel.app/">https://recover-ai-xi-ten.vercel.app/</a></strong></p>
+</div>
 <p align="center">
   <img src="assets/RecoverAi_Cover.png" alt="RecoverAI Cover" width="100%">
 </p>
