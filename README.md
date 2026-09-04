@@ -1,6 +1,14 @@
 # RecoverAI — Autonomous Revenue Recovery Agent
 
+<p align="center">
+  <img src="assets/RecoverAi_Cover.png" alt="RecoverAI Cover" width="100%">
+</p>
+
 RecoverAI is a financial safety-first autonomous system that recovers failed payments while strictly prohibiting the LLM from executing unauthorized or unsafe financial actions.
+
+<p align="center">
+  <img src="assets/RecoverAi_Architecture.png" alt="RecoverAI Architecture" width="100%">
+</p>
 
 ## Problem
 Payment failures (e.g., bank timeouts, insufficient funds) result in millions of dollars in lost revenue for merchants. Traditional rule-based retry engines are too rigid, while modern autonomous AI agents are too dangerous to be given direct authority over financial transactions.
@@ -30,7 +38,7 @@ flowchart TD
     %% API Layer
     subgraph APILayer["API Layer (FastAPI)"]
         B1[Payments Router]
-        B2[Webhooks Router\n(HMAC Verification)]
+        B2["Webhooks Router<br>(HMAC Verification)"]
         B3[Dashboard / Stats Router]
     end
 
@@ -43,15 +51,15 @@ flowchart TD
 
     %% AI & Policy
     subgraph AISystem["AI & Policy Engine (Safety Boundary)"]
-        D1[AI Diagnosis Agent\n(Groq LLM / Scikit-Learn)]
-        D2[Policy Engine\n(Limits & Rules)]
-        D3[Execution Guard\n(Safety Constraints)]
+        D1["AI Diagnosis Agent<br>(Groq LLM / Scikit-Learn)"]
+        D2["Policy Engine<br>(Limits & Rules)"]
+        D3["Execution Guard<br>(Safety Constraints)"]
     end
 
     %% Async Layer
     subgraph AsyncLayer["Asynchronous Processing"]
         E1[(Redis Broker)]
-        E2[Celery Workers\n(app.worker.tasks)]
+        E2["Celery Workers<br>(app.worker.tasks)"]
     end
 
     %% Data Layer
@@ -251,7 +259,7 @@ flowchart LR
     subgraph Render["Render Cloud (Backend)"]
         subgraph WebService["Web Service (Container)"]
             FastAPI[FastAPI Uvicorn]
-            Celery[Celery Worker\nconcurrency=1]
+            Celery["Celery Worker<br>concurrency=1"]
             Bash[start.sh script]
         end
         
