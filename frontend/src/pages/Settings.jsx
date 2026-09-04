@@ -38,7 +38,7 @@ export default function Settings() {
           </div>
           <div className="settings-row">
             <span>API Base URL</span>
-            <span className="mono">{import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api/v1'}</span>
+            <span className="mono">{import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api/v1'}</span>
           </div>
         </div>
 
