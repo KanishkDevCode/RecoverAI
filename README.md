@@ -8,53 +8,338 @@ Payment failures (e.g., bank timeouts, insufficient funds) result in millions of
 ## Solution
 RecoverAI uses a hybrid pipeline combining machine learning, an LLM reasoning engine, and a deterministic state machine. It evaluates failed payments, infers the root cause, and orchestrates recovery actions without ever granting the LLM direct API access to the payment gateway. 
 
-## Key Features & Architecture
+---
 
-### Key Safety Principle
+## Key Safety Principle
 **The LLM NEVER has direct authority to move money.**
 The LLM generates reasoning and a recommended action, but a deterministic Policy Engine evaluates that recommendation against financial safety invariants before any execution is permitted.
+
+---
+
+## Master System Architecture
+
+```mermaid
+flowchart TD
+    %% Client Layer
+    subgraph ClientLayer["Client Layer (React / Vite)"]
+        A1[Checkout UI]
+        A2[Merchant Dashboard]
+        A3[Payment Details & Audit]
+    end
+
+    %% API Layer
+    subgraph APILayer["API Layer (FastAPI)"]
+        B1[Payments Router]
+        B2[Webhooks Router\n(HMAC Verification)]
+        B3[Dashboard / Stats Router]
+    end
+
+    %% Business Logic
+    subgraph BusinessLogic["Business Logic & Orchestration"]
+        C1[Transaction Service]
+        C2[Recovery Orchestrator]
+        C3[State Machine]
+    end
+
+    %% AI & Policy
+    subgraph AISystem["AI & Policy Engine (Safety Boundary)"]
+        D1[AI Diagnosis Agent\n(Groq LLM / Scikit-Learn)]
+        D2[Policy Engine\n(Limits & Rules)]
+        D3[Execution Guard\n(Safety Constraints)]
+    end
+
+    %% Async Layer
+    subgraph AsyncLayer["Asynchronous Processing"]
+        E1[(Redis Broker)]
+        E2[Celery Workers\n(app.worker.tasks)]
+    end
+
+    %% Data Layer
+    subgraph DataLayer["Data Layer (PostgreSQL)"]
+        F1[(Transactions)]
+        F2[(Recovery Attempts)]
+        F3[(Audit Trails)]
+        F4[(Webhooks)]
+    end
+
+    %% External Services
+    subgraph External["External Services"]
+        X1[Razorpay API]
+        X2[Groq API]
+    end
+
+    %% Flow Connections
+    A1 -- "Mock Checkout POST" --> B1
+    A2 -- "Fetch Stats REST" --> B3
+    A3 -- "Fetch Audit REST / WS" --> B3
+
+    X1 -- "Real HTTPS Webhook" --> B2
+    
+    B1 -- "Sync DB Read/Write" --> C1
+    B2 -- "Persist Webhook" --> F4
+    
+    B1 -- "Publish Event" --> E1
+    B2 -- "Publish Event" --> E1
+    
+    E1 -- "Consume Task" --> E2
+    E2 -- "Trigger Orchestrator" --> C2
+    
+    C2 -- "1. Request Diagnosis" --> D1
+    D1 -- "Analyze Context" --> X2
+    D1 -- "Recommendation" --> C2
+    
+    C2 -- "2. Validate Recommendation" --> D2
+    D2 -- "Decision" --> C2
+    
+    C2 -- "3. Execute Action" --> D3
+    D3 -- "4. API Call (If Safe)" --> X1
+    
+    C2 -- "State Transitions" --> C3
+    C3 -- "Persist Status" --> F1
+    C2 -- "Record Attempt" --> F2
+    C2 -- "Write Audit Log" --> F3
+    
+    C1 --> F1
+    B3 --> F1
+    B3 --> F2
+    B3 --> F3
+
+    classDef client fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0f172a;
+    classDef api fill:#dcfce7,stroke:#16a34a,stroke-width:2px,color:#0f172a;
+    classDef logic fill:#fef08a,stroke:#ca8a04,stroke-width:2px,color:#0f172a;
+    classDef ai fill:#fce7f3,stroke:#db2777,stroke-width:2px,color:#0f172a;
+    classDef async fill:#ede9fe,stroke:#7c3aed,stroke-width:2px,color:#0f172a;
+    classDef db fill:#ffedd5,stroke:#ea580c,stroke-width:2px,color:#0f172a;
+    classDef external fill:#f3f4f6,stroke:#4b5563,stroke-width:2px,stroke-dasharray: 5 5,color:#0f172a;
+
+    class A1,A2,A3 client;
+    class B1,B2,B3 api;
+    class C1,C2,C3 logic;
+    class D1,D2,D3 ai;
+    class E1,E2 async;
+    class F1,F2,F3,F4 db;
+    class X1,X2 external;
+```
+
+---
+
+## Detailed Component Analysis
 
 ### 1. ML Component (Random Forest)
 A machine learning model evaluates historical transaction features to generate a deterministic probability of successful recovery. It is optimized for Expected Value (EV) by balancing the cost of intervention against potential recovered revenue.
 
-### 2. Gemini/LLM Component (Diagnosis Agent)
+### 2. LLM Component (Diagnosis Agent)
 The LLM analyzes the failure context, the raw ML probability, and business constraints to reason about the failure mode. It outputs a structured diagnosis and a recommended recovery action (e.g., `RETRY_PAYMENT`, `WAIT_AND_RETRY`, `CREATE_ESCALATION`).
 
-### 3. Deterministic Policy Engine
-A strict rules engine that intercepts the LLM's recommendation. It enforces hard constraints (e.g., max retries, minimum ML probability thresholds, allowed actions per failure code) and acts as the ultimate authority over what action is taken.
+### 3. Deterministic Policy Engine & Safety Guard
+A strict rules engine that intercepts the LLM's recommendation. It enforces hard constraints (e.g., max retries, minimum ML probability thresholds, allowed actions per failure code). Finally, the **Execution Guard** ensures the requested action is actually supported by the physical payment gateway before executing it.
 
-### 4. Financial State Machine
-A rigid state machine (`PENDING` -> `AUTHORIZED` -> `SUCCEEDED` / `FAILED` / `ESCALATED`) that ensures transactions only transition through valid states.
-
-### 5. Configurable Payment Gateways (Factory Pattern)
+### 4. Configurable Payment Gateways (Factory Pattern)
 The application dynamically switches between gateway abstractions using the `PAYMENT_PROVIDER` environment variable:
 - **MockGateway (`PAYMENT_PROVIDER=mock`)**: A highly robust local simulator that acts like a real gateway. It enforces strict idempotency, simulates network latency, and allows for massive parallel automated testing without requiring real API keys.
-- **RazorpayGateway (`PAYMENT_PROVIDER=razorpay`)**: The production-ready integration with Razorpay Test Mode. It safely maps internal semantic actions to strict real-world API endpoints (e.g., mapping `SEND_RECOVERY_MESSAGE` to generating Razorpay Payment Links, and `PROCESS_REFUND` to Razorpay's Refund API). It rigorously strips and sanitizes all API secrets from exceptions to guarantee they never leak into logs. It fully implements Razorpay webhooks (`payment.failed`, `payment.captured`, `refund.created`) using strict HMAC-SHA256 signature verification to achieve true real-time end-to-end integration.
+- **RazorpayGateway (`PAYMENT_PROVIDER=razorpay`)**: The production-ready integration with Razorpay Test Mode. It safely maps internal semantic actions to strict real-world API endpoints. It fully implements Razorpay webhooks (`payment.failed`, `payment.captured`) using strict HMAC-SHA256 signature verification to achieve true real-time end-to-end integration.
 
-### 6. Audit Trail
-Every transition, recommendation, and policy decision is immutably logged to the database for compliance and observability.
+---
 
-## Evaluation Methodology & Results
-The system was evaluated against 1,000 held-out synthetic transactions to compare RecoverAI against a "Safe Naive Retry" baseline.
+## Data Flows and execution Paths
 
-### V2 Results
-- **RecoverAI demonstrated higher simulated net value** than the safety-constrained baseline on the held-out test set.
-- RecoverAI incrementally generated $106,997 in simulated net value compared to the baseline.
+### AI Recovery Decision Pipeline
+This diagram highlights the strict safety boundaries preventing the AI from executing unauthorized financial operations.
 
-### Safety Results
-- **Empirically verified safety invariants** across the entire test suite.
-- 0 Unauthorized Executions.
-- 0 Duplicate Executions.
+```mermaid
+flowchart TD
+    In[Failed Transaction Context] --> Prep[Feature Extraction]
+    Prep --> Ag[AI Diagnosis Agent]
+    
+    subgraph AIEngine["AI Decision Generation"]
+        Ag --> Groq[Groq LLM: Causal Diagnosis]
+        Ag --> ML[Scikit-Learn: Probability Score]
+        Groq --> Comb[Combined AI Recommendation]
+        ML --> Comb
+    end
+    
+    Comb --> PE[Policy Engine]
+    
+    subgraph SafetyLayer["Deterministic Safety Layer"]
+        PE -- "Is amount <= Max Auto Limit?" --> Rule1{Check Limit}
+        Rule1 -- Yes --> Rule2{Check Retry Count}
+        Rule1 -- No --> Reject[Action Denied -> ESCALATE]
+        Rule2 -- Yes --> Approve[Action Allowed]
+        Rule2 -- No --> Reject
+    end
+    
+    Approve --> EG[Execution Guard]
+    
+    subgraph GatewaySafety["Gateway Limitations"]
+        EG -- "Is Action supported by Gateway?" --> GWCheck{Check Capabilities}
+        GWCheck -- "Yes (e.g. Send Email)" --> Exec[Execute Action]
+        GWCheck -- "No (e.g. Blind Retry on Checkout)" --> SafeBlock[Recovery Blocked Safely]
+    end
+    
+    classDef red fill:#fee2e2,stroke:#ef4444,stroke-width:2px,color:#0f172a;
+    classDef green fill:#dcfce7,stroke:#22c55e,stroke-width:2px,color:#0f172a;
+    class Reject,SafeBlock red;
+    class Approve,Exec green;
+```
+
+### Razorpay Webhook Flow
+When a real failure occurs in the external world, the webhook payload traverses the security layers before reaching the background workers.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant RZP as External: Razorpay
+    participant API as FastAPI (/webhooks/gateway)
+    participant DB as PostgreSQL
+    participant Redis as Redis Queue
+    participant Celery as Celery Worker
+    
+    RZP->>API: POST Webhook (payment.failed)
+    API->>API: Verify HMAC-SHA256 Signature
+    API->>DB: Check Idempotency (Event ID exists?)
+    
+    alt Event already processed
+        API-->>RZP: 200 OK (Ignore)
+    else New Event
+        API->>DB: Persist Webhook Event
+        API->>Redis: Push to 'process_webhook' queue
+        API-->>RZP: 202 Accepted (Fast Return)
+        
+        Redis-->>Celery: Consume Event
+        Celery->>DB: Lookup Transaction by gateway_id
+        Celery->>Celery: Trigger Recovery Orchestrator Pipeline
+    end
+```
+
+### Transaction State Machine
+The system rigorously controls transaction state to ensure asynchronous task failures don't leave transactions in invalid states.
+
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING: Payment Failure Detected
+    
+    PENDING --> WAITING: AI Analysis & Scheduling
+    WAITING --> AUTHORIZED: Policy Engine Approved
+    WAITING --> ESCALATED: Policy Engine Rejected
+    
+    AUTHORIZED --> EXECUTING: Gateway Guard Approved
+    AUTHORIZED --> STOPPED: Gateway Guard Blocked (e.g. Blind Retry)
+    
+    EXECUTING --> RECOVERED: Recovery Action Succeeded
+    EXECUTING --> FAILED_RECOVERY: Recovery Action Failed
+    
+    RECOVERED --> [*]
+    FAILED_RECOVERY --> [*]
+    ESCALATED --> [*]
+    STOPPED --> [*]
+```
+
+---
+
+## Deployment Architecture
+
+The application is fully cloud-native. The frontend is hosted on Vercel, securely communicating with a Render container hosting both the FastAPI web server and the Celery background worker, backed by Render PostgreSQL and Redis.
+
+```mermaid
+flowchart LR
+    User((User / Customer))
+    
+    subgraph Vercel["Vercel Cloud (Frontend)"]
+        React[React SPA]
+    end
+    
+    subgraph Render["Render Cloud (Backend)"]
+        subgraph WebService["Web Service (Container)"]
+            FastAPI[FastAPI Uvicorn]
+            Celery[Celery Worker\nconcurrency=1]
+            Bash[start.sh script]
+        end
+        
+        DB[(PostgreSQL)]
+        Redis[(Redis)]
+    end
+    
+    RZP[Razorpay Servers]
+    Groq[Groq API]
+    
+    User -- "HTTPS" --> React
+    React -- "REST (VITE_API_URL)" --> FastAPI
+    RZP -- "HTTPS Webhook" --> FastAPI
+    
+    Bash --> FastAPI
+    Bash --> Celery
+    
+    FastAPI -- "SQLAlchemy" --> DB
+    FastAPI -- "Enqueue Tasks" --> Redis
+    Celery -- "Consume Tasks" --> Redis
+    Celery -- "SQLAlchemy" --> DB
+    
+    Celery -- "LLM Requests" --> Groq
+```
+
+---
+
+## Database ER Diagram
+The system permanently records all decisions for compliance and auditing.
+
+```mermaid
+erDiagram
+    TRANSACTION ||--o{ RECOVERY_ATTEMPT : "has many"
+    TRANSACTION ||--o{ AUDIT_TRAIL : "has many"
+    TRANSACTION ||--o{ WEBHOOK_EVENT : "has many"
+    
+    TRANSACTION {
+        string id PK
+        string gateway_payment_id
+        string customer_id
+        float amount
+        string currency
+        string status "PENDING, FAILED, SUCCEEDED"
+        string failure_code
+        datetime created_at
+    }
+    
+    RECOVERY_ATTEMPT {
+        string id PK
+        string transaction_id FK
+        string ai_diagnosis
+        string recommended_action
+        string policy_decision "ALLOWED / REJECTED"
+        string outcome_status "WAITING, SUCCEEDED, FAILED"
+        integer latency_ms
+        datetime created_at
+    }
+    
+    AUDIT_TRAIL {
+        string id PK
+        string transaction_id FK
+        string event_type "DETECTION, STATE_TRANSITION"
+        string previous_state
+        string new_state
+        string message
+        datetime created_at
+    }
+    
+    WEBHOOK_EVENT {
+        string id PK "Idempotency Key"
+        string transaction_id FK
+        string event_type "payment.failed"
+        jsonb payload
+        boolean processed
+        datetime created_at
+    }
+```
+
+---
 
 ## Project Structure
 ```text
 recoverai/
 ├── backend/            # FastAPI backend, Orchestrator, Policy Engine
 ├── frontend/           # React live-visualization UI
-├── data/v2/            # Synthetic datasets
 ├── models/             # Trained ML model and configuration
-├── docs/               # Architecture, Security, and ML documentation
-└── scripts/            # Reproducibility and evaluation scripts
+├── scripts/            # Reproducibility and evaluation scripts
+└── README.md           # Documentation
 ```
 
 ## Running Locally
@@ -63,22 +348,14 @@ recoverai/
 Copy `.env.example` to `.env` and fill in the required keys.
 ```env
 # AI Providers
-LLM_PROVIDER=mock # options: groq, ollama, mock, auto
-GEMINI_API_KEY=your_gemini_key_here
+LLM_PROVIDER=mock # options: groq, mock, auto
 GROQ_API_KEY=your_groq_key_here
-OLLAMA_MODEL=llama3.1:8b
 
 # Payment Providers
 PAYMENT_PROVIDER=mock # options: mock, razorpay
-RAZORPAY_KEY_ID=your_razorpay_key_here # Required if PAYMENT_PROVIDER=razorpay
-RAZORPAY_KEY_SECRET=your_razorpay_secret_here # Required if PAYMENT_PROVIDER=razorpay
-RAZORPAY_WEBHOOK_SECRET=your_webhook_secret_here # Required if PAYMENT_PROVIDER=razorpay
-```
-
-### Installation & Reproducibility
-We provide a PowerShell script to automatically setup the environment, install dependencies, run the test suite, and run the batch evaluation:
-```powershell
-.\scripts\reproduce_v2.ps1
+RAZORPAY_KEY_ID=your_razorpay_key_here
+RAZORPAY_KEY_SECRET=your_razorpay_secret_here
+RAZORPAY_WEBHOOK_SECRET=your_webhook_secret_here
 ```
 
 ### Running the Backend (Terminal 1)
@@ -105,35 +382,3 @@ cd frontend
 npm install
 npm run dev
 ```
-
-### Running Tests
-```powershell
-cd backend
-pytest tests/ -v
-```
-
-## Detailed Architecture Breakdown
-RecoverAI is composed of several independent components that work together to securely process failed transactions asynchronously.
-
-### 1. FastAPI — The Main Backend 🧠
-The core API server that receives requests from the frontend or webhook sources. When a payment fails, FastAPI creates a transaction record and immediately delegates the heavy lifting to the background queue. This keeps the API lightning fast.
-
-### 2. PostgreSQL — The Permanent Database 🗄️
-Stores all critical data including `Transactions`, `RecoveryAttempts`, `AuditLogs`, and idempotency records. This acts as the permanent memory of the system, ensuring transaction state is never lost even if the application restarts.
-
-### 3. Redis / Memurai — The Message Queue ⚡
-Acts as the intermediary "waiting room" between FastAPI and the background workers. When FastAPI accepts a failed transaction, it places a job in the Redis queue. We use **Memurai** (a Windows-compatible Redis server) for local development.
-
-### 4. Celery — The Background Worker ⚙️
-Consumes tasks from the Redis queue and orchestrates the heavy recovery logic in the background without blocking the user.
-The Celery worker passes the transaction through the **AI Diagnosis Agent** which utilizes a fallback chain:
-1. **Groq API (Cloud):** The primary, lightning-fast LLM.
-2. **Ollama (Local):** The secondary fallback if Groq is unavailable.
-3. **Mock Rules (Local):** A final deterministic fallback to guarantee execution.
-
-Once the AI generates a recommendation, it is evaluated against the deterministic **Policy Engine** before the final result is permanently saved to PostgreSQL and sent back to the frontend.
-
-## Future Work
-- Implementation of WebSocket streaming for live UI observability (architecture designed, pending implementation).
-- Expansion of the Policy Engine for dynamic merchant-specific rulesets.
-- Enhanced telemetry for the ML model drift detection.
