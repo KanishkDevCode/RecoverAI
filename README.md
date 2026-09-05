@@ -137,19 +137,26 @@ flowchart TD
 
 ## Detailed Component Analysis
 
-### 1. ML Component (Random Forest)
-A machine learning model evaluates historical transaction features to generate a deterministic probability of successful recovery. It is optimized for Expected Value (EV) by balancing the cost of intervention against potential recovered revenue.
+### 1. Redis (Message Broker & Queue) ⚡
+Acts as the intermediary "waiting room" between the FastAPI web server and background workers. When a webhook arrives from Razorpay, FastAPI instantly pushes the payload to Redis and returns a `202 Accepted` to Razorpay. This prevents the payment gateway from timing out, even if the AI takes several seconds to generate a response. 
 
-### 2. LLM Component (Diagnosis Agent)
-The LLM analyzes the failure context, the raw ML probability, and business constraints to reason about the failure mode. It outputs a structured diagnosis and a recommended recovery action (e.g., `RETRY_PAYMENT`, `WAIT_AND_RETRY`, `CREATE_ESCALATION`).
+### 2. Celery (Distributed Task Worker) ⚙️
+Consumes tasks from the Redis queue and orchestrates the heavy lifting in the background without blocking the main web server. Celery is responsible for querying the database, calling the Groq LLM API, executing the Policy Engine, and managing the Transaction State Machine.
 
-### 3. Deterministic Policy Engine & Safety Guard
-A strict rules engine that intercepts the LLM's recommendation. It enforces hard constraints (e.g., max retries, minimum ML probability thresholds, allowed actions per failure code). Finally, the **Execution Guard** ensures the requested action is actually supported by the physical payment gateway before executing it.
+### 3. PostgreSQL (Permanent Datastore) 🗄️
+The highly relational database acting as the permanent memory of the system. It strictly enforces foreign key constraints and schemas (managed by SQLAlchemy/Alembic) to store `Transactions`, `RecoveryAttempts`, `Webhooks`, and immutable `AuditTrails`. 
 
-### 4. Configurable Payment Gateways (Factory Pattern)
-The application dynamically switches between gateway abstractions using the `PAYMENT_PROVIDER` environment variable:
-- **MockGateway (`PAYMENT_PROVIDER=mock`)**: A highly robust local simulator that acts like a real gateway. It enforces strict idempotency, simulates network latency, and allows for massive parallel automated testing without requiring real API keys.
-- **RazorpayGateway (`PAYMENT_PROVIDER=razorpay`)**: The production-ready integration with Razorpay Test Mode. It safely maps internal semantic actions to strict real-world API endpoints. It fully implements Razorpay webhooks (`payment.failed`, `payment.captured`) using strict HMAC-SHA256 signature verification to achieve true real-time end-to-end integration.
+### 4. FastAPI (API Web Server) 🧠
+The lightning-fast core Python API that handles real-time HTTP requests, verifies cryptographically signed Razorpay Webhooks (HMAC-SHA256), and serves analytical data back to the React frontend.
+
+### 5. Groq API (LLM Engine) 🤖
+Provides ultra-fast Llama 3 inference. It acts as the semantic reasoning engine to analyze the failure context and recommend a recovery action (e.g., `WAIT_AND_RETRY`), without ever being granted direct permission to execute that action.
+
+### 6. React & Vite (Frontend Dashboard) 🖥️
+A responsive Single Page Application (SPA) providing a merchant control center. It visualizes the current state of the database, simulates checkout failures for testing, and streams live audit logs of the AI's decision-making process.
+
+### 7. Deterministic Policy Engine & Safety Guard 🛡️
+A strict Python rules engine that intercepts the LLM's recommendation. It enforces hard constraints (e.g., max retries). Finally, the **Execution Guard** ensures the requested action is actually supported by the physical payment gateway before executing it.
 
 ---
 
@@ -347,11 +354,40 @@ erDiagram
 ## Project Structure
 ```text
 recoverai/
-├── backend/            # FastAPI backend, Orchestrator, Policy Engine
-├── frontend/           # React live-visualization UI
-├── models/             # Trained ML model and configuration
-├── scripts/            # Reproducibility and evaluation scripts
-└── README.md           # Documentation
+├── backend/                             # Python Backend Workspace
+│   ├── alembic/                         # Database Migration Scripts
+│   ├── app/
+│   │   ├── api/v1/                      # FastAPI Routers (Payments, Webhooks, Dashboard)
+│   │   ├── core/                        # Core config, Database setup, State Machine
+│   │   ├── models/                      # SQLAlchemy Database Models (Tables)
+│   │   ├── schemas/                     # Pydantic Validation Schemas
+│   │   ├── services/                    
+│   │   │   ├── orchestration/           # The Recovery Orchestrator Pipeline
+│   │   │   ├── agents/                  # AI Diagnosis Agent (Groq / ML Integration)
+│   │   │   └── gateways/                # Razorpay and Mock Payment Adapters
+│   │   ├── worker/                      # Celery App and Async Background Tasks
+│   │   └── main.py                      # FastAPI Application Entrypoint
+│   └── tests/                           # Pytest Test Suite
+│
+├── frontend/                            # React & Vite Frontend Workspace
+│   ├── src/
+│   │   ├── components/                  # Reusable UI (Buttons, Status Badges)
+│   │   ├── context/                     # React Context (Payment Flow & Live Logs)
+│   │   ├── pages/                       # App Views (Dashboard, Checkout, Details)
+│   │   ├── services/                    # API client and WebSocket integration
+│   │   └── index.css                    # Global Styles (Tailwind/Custom CSS)
+│   ├── vercel.json                      # Vercel SPA Routing Configuration
+│   └── package.json                     # NPM Dependencies
+│
+├── models/                              # Trained Machine Learning Assets
+│   └── recovery_model_v2.pkl            # Pickled Random Forest Model
+│
+├── scripts/                             # Reproducibility & Build Scripts
+│   └── reproduce_v2.ps1                 # Automated E2E Setup Script
+│
+├── assets/                              # Repository Images (Cover, Architecture)
+├── system_architecture.md               # Extensive System Architecture Documentation
+└── README.md                            # Main Project Documentation
 ```
 
 ## Running Locally
