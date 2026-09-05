@@ -8,6 +8,21 @@
   <img src="assets/RecoverAi_Cover.png" alt="RecoverAI Cover" width="100%">
 </p>
 
+## ✨ Key Features
+
+- 🤖 Hybrid AI diagnosis using Groq LLM + Machine Learning
+- 🛡️ Safety-first deterministic Policy Engine
+- 🔒 Execution Guard preventing unsupported gateway actions
+- ⚡ Asynchronous event-driven processing with Redis + Celery
+- 🪝 HMAC-SHA256 verified Razorpay webhooks
+- 🔁 Idempotent webhook processing
+- 📊 Real-time merchant dashboard
+- 📜 Immutable transaction audit trail
+- 🔄 Deterministic transaction state machine
+- 🧠 Root-cause analysis for payment failures
+- ☁️ Fully deployed cloud architecture
+- 🧪 Interactive payment failure simulation
+
 RecoverAI is a financial safety-first autonomous system that recovers failed payments while strictly prohibiting the LLM from executing unauthorized or unsafe financial actions.
 
 <p align="center">
@@ -20,11 +35,105 @@ Payment failures (e.g., bank timeouts, insufficient funds) result in millions of
 ## Solution
 RecoverAI uses a hybrid pipeline combining machine learning, an LLM reasoning engine, and a deterministic state machine. It evaluates failed payments, infers the root cause, and orchestrates recovery actions without ever granting the LLM direct API access to the payment gateway. 
 
+## 🌐 Live Deployment
+
+| Service | URL |
+|---|---|
+| 🖥️ Frontend Demo | https://recover-ai-xi-ten.vercel.app/ |
+| ⚡ Backend API | https://recoverai-api-as5f.onrender.com |
+| 📚 API Documentation | https://recoverai-api-as5f.onrender.com/docs |
+
+> The application is deployed using Vercel and Render with PostgreSQL, Redis, FastAPI, and Celery.
+
 ---
 
-## Key Safety Principle
-**The LLM NEVER has direct authority to move money.**
-The LLM generates reasoning and a recommended action, but a deterministic Policy Engine evaluates that recommendation against financial safety invariants before any execution is permitted.
+## 🔐 Security & Safety Guarantees
+
+RecoverAI is designed around the principle that AI reasoning and financial execution must remain separated.
+
+### Safety guarantees
+
+- LLM has no direct payment gateway credentials or execution authority.
+- Every AI recommendation passes through deterministic policy validation.
+- Execution Guard validates gateway capabilities before execution.
+- Razorpay webhooks are verified using HMAC-SHA256 signatures.
+- Webhook events are processed idempotently.
+- Transaction state transitions are explicitly controlled.
+- Every recovery decision is recorded in an audit trail.
+- Unsupported financial actions are blocked safely.
+
+## ⚠️ Gateway Safety & Real-World Constraints
+
+RecoverAI intentionally does not blindly retry failed Razorpay payments.
+
+During testing, the AI may determine that a transaction is eligible for a `WAIT_AND_RETRY` recovery strategy. However, the Execution Guard performs a final capability check against the payment gateway.
+
+If Razorpay does not support safely retrying the original transaction, RecoverAI blocks the execution:
+
+```text
+AI Recommendation
+       ↓
+Policy Approved
+       ↓
+Execution Guard
+       ↓
+Gateway Capability Check
+       ↓
+❌ Unsupported Action
+       ↓
+Recovery Blocked Safely
+```
+
+This behavior is intentional.
+
+Rather than allowing an AI agent to perform an unsafe or unsupported financial operation, RecoverAI fails safely and records the reason in the audit trail.
+
+A safely blocked recovery is preferable to an unauthorized financial action.
+
+---
+
+## 🔄 What Happens When a Payment Fails?
+
+RecoverAI follows a safety-first autonomous recovery pipeline:
+
+```text
+1. Payment Failure Detected
+        ↓
+2. Transaction Event Created
+        ↓
+3. Event Sent to Redis Queue
+        ↓
+4. Celery Worker Processes Failure
+        ↓
+5. AI Diagnoses Root Cause
+        ↓
+6. ML Model Estimates Recovery Probability
+        ↓
+7. LLM Recommends Recovery Action
+        ↓
+8. Deterministic Policy Engine Validates Action
+        ↓
+9. Execution Guard Checks Gateway Capability
+        ↓
+10. Safe Action Executed OR Recovery Blocked
+        ↓
+11. Complete Decision Stored in Audit Trail
+```
+
+### Example
+
+A transaction fails because of a temporary bank timeout.
+
+1. The AI diagnoses the failure as potentially transient.
+2. The ML model estimates the probability of successful recovery.
+3. The AI may recommend `WAIT_AND_RETRY`.
+4. The Policy Engine checks retry limits and financial constraints.
+5. The Execution Guard checks whether Razorpay actually supports that retry.
+6. If unsupported, RecoverAI safely blocks the action instead of blindly retrying the payment.
+
+This is a key design principle of RecoverAI:
+
+**Autonomy does not mean unrestricted execution.**
 
 ---
 
@@ -157,6 +266,25 @@ A responsive Single Page Application (SPA) providing a merchant control center. 
 
 ### 7. Deterministic Policy Engine & Safety Guard 🛡️
 A strict Python rules engine that intercepts the LLM's recommendation. It enforces hard constraints (e.g., max retries). Finally, the **Execution Guard** ensures the requested action is actually supported by the physical payment gateway before executing it.
+
+---
+
+## 🛠️ Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | React + Vite |
+| Backend | FastAPI |
+| AI Reasoning | Groq LLM |
+| Machine Learning | Scikit-Learn |
+| Background Processing | Celery |
+| Message Broker | Redis / Valkey |
+| Database | PostgreSQL |
+| ORM | SQLAlchemy |
+| Database Migrations | Alembic |
+| Payment Gateway | Razorpay |
+| Deployment | Render + Vercel |
+| API Documentation | Swagger / OpenAPI |
 
 ---
 
@@ -390,6 +518,19 @@ recoverai/
 └── README.md                            # Main Project Documentation
 ```
 
+## 🔌 Core API Endpoints
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/v1/payments/...` | Create / simulate payment transaction |
+| `POST` | `/api/v1/webhooks/gateway` | Receive payment gateway webhooks |
+| `GET` | `/api/v1/transactions` | Retrieve transactions |
+| `GET` | `/api/v1/dashboard/metrics` | Dashboard analytics |
+| `GET` | `/api/v1/audit/{transaction_id}` | Retrieve transaction audit trail |
+| `GET` | `/docs` | Interactive Swagger API documentation |
+
+---
+
 ## Running Locally
 
 ### Environment Variables
@@ -430,3 +571,47 @@ cd frontend
 npm install
 npm run dev
 ```
+
+---
+
+## 🚀 Future Improvements
+
+- Support additional payment gateways such as Stripe.
+- Implement customer-safe retry flows using payment links.
+- Add human-in-the-loop approval for high-value transactions.
+- Introduce adaptive recovery policies using historical outcomes.
+- Add anomaly detection for unusual failure patterns.
+- Implement merchant-configurable financial risk limits.
+- Support multi-currency recovery strategies.
+- Add production-grade monitoring and observability dashboards.
+
+---
+
+## 💡 Project Philosophy
+
+RecoverAI explores a critical question in financial AI:
+
+> **How can we benefit from autonomous AI reasoning without giving an AI system unrestricted authority over money?**
+
+The answer implemented in RecoverAI is **constrained autonomy**.
+
+The AI can:
+
+- Analyze
+- Reason
+- Diagnose
+- Recommend
+
+But deterministic software controls whether an action is actually allowed and technically possible.
+
+```text
+AI Intelligence
+      ↓
+Policy Constraints
+      ↓
+Execution Guard
+      ↓
+Safe Financial Action
+```
+
+RecoverAI demonstrates that in high-stakes systems, the goal should not be to maximize AI autonomy.
